@@ -27,6 +27,7 @@ class ProfileCard(QFrame):
     switchRequested = Signal(str)
     launchRequested = Signal(str)
     reloginRequested = Signal(str)
+    setupRequested = Signal(str)
 
     def __init__(
         self, state: ProfileState, *, compact: bool = False, parent: QWidget | None = None
@@ -127,7 +128,7 @@ class ProfileCard(QFrame):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._switch_button.setStyleSheet(self._primary_button_style())
-        self._switch_button.clicked.connect(lambda: self.switchRequested.emit(self._key))
+        self._switch_button.clicked.connect(self._on_primary_clicked)
         actions.addWidget(self._switch_button, 2)
 
         self._launch_button = QPushButton("Launch")
@@ -181,12 +182,28 @@ class ProfileCard(QFrame):
         self._relogin_button.setVisible(state.needs_reauth)
 
         self._freshness_label.setText(self._freshness_text(state))
-        self._switch_button.setEnabled(bool(account) and not state.is_active)
-        self._switch_button.setText(
-            "Active" if state.is_active else f"Switch to {state.profile.name}"
-        )
+        self._switch_button.setEnabled(self._primary_enabled(state))
+        self._switch_button.setText(self._primary_text(state))
         self._launch_button.setEnabled(bool(account and account.number is not None))
         self._launch_button.setToolTip(self._launch_tooltip(state))
+
+    def _on_primary_clicked(self) -> None:
+        # An unregistered profile has nothing to switch to, so the same button
+        # becomes the way into setup rather than a dead control.
+        if self._state.account is None:
+            self.setupRequested.emit(self._key)
+        else:
+            self.switchRequested.emit(self._key)
+
+    def _primary_text(self, state: ProfileState) -> str:
+        if state.account is None:
+            return f"Set up {state.profile.name}…"
+        return "Active" if state.is_active else f"Switch to {state.profile.name}"
+
+    def _primary_enabled(self, state: ProfileState) -> bool:
+        if state.account is None:
+            return True
+        return not state.is_active
 
     def _freshness_text(self, state: ProfileState) -> str:
         account = state.account
@@ -261,15 +278,10 @@ class ProfileCard(QFrame):
     def set_busy(self, busy: bool) -> None:
         """Disable the switch control while an action is in flight."""
         state = self._state
-        self._switch_button.setEnabled(
-            not busy and bool(state.account) and not state.is_active
-        )
+        self._switch_button.setEnabled(not busy and self._primary_enabled(state))
         self._launch_button.setEnabled(
             not busy and bool(state.account and state.account.number is not None)
         )
-        if busy:
-            self._switch_button.setText("Working…")
-        else:
-            self._switch_button.setText(
-                "Active" if state.is_active else f"Switch to {state.profile.name}"
-            )
+        self._switch_button.setText(
+            "Working…" if busy else self._primary_text(state)
+        )

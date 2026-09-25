@@ -52,24 +52,36 @@ cswap --version
 
 If `cswap` is not found afterwards, make sure `%USERPROFILE%\.local\bin` is on your `PATH`.
 
-## 2. Register and alias your accounts
+## 2. Register your accounts
 
-claude-swap registers whichever account Claude Code is **currently** signed in as, so you do this
-once per account. Claude Profiles never automates this step.
+**You can do this inside the app.** Start it (step 3), then open the **Accounts** tab — from the
+tray menu, or by clicking *Set up Personal…* on an unregistered profile card.
+
+The page walks the two steps in order:
+
+1. **Sign in.** Claude Profiles never handles sign-in itself. The button opens a terminal running
+   Claude Code; sign in there (type `/login` to switch account), close it, then press **Re-check**.
+2. **Register.** The page shows exactly which address Claude Code is currently signed in as, then
+   stores it under Personal or Work on a click. It asks you to confirm the address first, because
+   claude-swap captures whichever account is signed in *right now*.
+
+Repeat for the second account. If an account is already registered under the wrong alias, the
+bottom of the page re-points it at a profile instead of adding it twice.
+
+<details>
+<summary>The equivalent terminal commands, if you prefer</summary>
 
 ```powershell
-# Sign in to Claude Code as your first account, then:
-claude          # complete the login, then exit
+claude                      # sign in as the first account, then exit
 cswap add --alias personal
 
-# Sign in as your second account, then:
-claude          # complete the login, then exit
+claude                      # sign in as the second account, then exit
 cswap add --alias work
 
-cswap list      # both accounts should appear with their aliases
+cswap list                  # both accounts should appear with their aliases
+cswap alias 1 personal      # to re-point an existing account
 ```
-
-To rename an alias later: `cswap alias 1 personal`.
+</details>
 
 The aliases `personal` and `work` are the only account identifiers Claude Profiles stores. Email
 addresses are read from `cswap list --json` at runtime and never written into source or config.
@@ -123,9 +135,11 @@ direct result of something you clicked.
 If claude-swap reports `token_expired`, `relogin_required`, or `no_credentials`, the card shows
 **Re-authentication required** and offers instructions. The fix is manual by design:
 
-1. Run `claude` in a terminal and sign in as that account.
-2. Run `cswap add --alias <alias>` to refresh the stored slot.
-3. Press **Refresh now**.
+1. Open the **Accounts** tab and press **Open a terminal to sign in to Claude Code**.
+2. Sign in as that account, then close the terminal and press **Re-check**.
+3. Press **Register as Personal** / **Register as Work** to refresh the stored slot.
+
+The equivalent by hand is `claude` to sign in, then `cswap add --alias <alias>`.
 
 This app will never attempt to automate authentication in the background.
 
@@ -137,8 +151,12 @@ This app will never attempt to automate authentication in the background.
   local `cswap` executable and parsing the JSON it prints.
 - **No credential access.** `%USERPROFILE%\.claude\.credentials.json`, `.claude-swap-backup\`, and
   Claude Code session files are never read, written, copied, exported, or backed up.
-- **Allowlisted commands.** Only `cswap list`, `status`, `switch`, and `run` can be invoked. There is
-  no free-form command path, argv is always a list, and a shell is never used.
+- **Allowlisted commands.** Only `cswap list`, `status`, `switch`, `run`, `add`, and `alias` can be
+  invoked. There is no free-form command path, argv is always a list, and a shell is never used.
+  `remove`, `purge`, `export`, `import`, `add-token`, and `config` are all refused.
+- **Setup is not authentication.** `add` only records the account Claude Code is *already* signed
+  in as. Signing in stays an interactive step you perform in a terminal; the app never sees or
+  handles a credential.
 - **No raw output is logged.** stdout and stderr never reach a log or the UI — only parsed, redacted
   error fields do.
 - **Redaction everywhere.** Anything written to disk passes through a scrubber for API keys, JWTs,

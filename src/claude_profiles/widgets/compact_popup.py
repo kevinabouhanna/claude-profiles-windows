@@ -56,6 +56,7 @@ class CompactPopup(QWidget):
     switchRequested = Signal(str)
     launchRequested = Signal(str)
     reloginRequested = Signal(str)
+    setupRequested = Signal(str)
     refreshRequested = Signal()
     dashboardRequested = Signal()
     settingsRequested = Signal()
@@ -111,6 +112,7 @@ class CompactPopup(QWidget):
             card.switchRequested.connect(self.switchRequested.emit)
             card.launchRequested.connect(self.launchRequested.emit)
             card.reloginRequested.connect(self.reloginRequested.emit)
+            card.setupRequested.connect(self.setupRequested.emit)
             layout.addWidget(card)
             self._cards[state.profile.key] = card
 

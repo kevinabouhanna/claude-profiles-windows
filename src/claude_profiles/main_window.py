@@ -23,7 +23,14 @@ from PySide6.QtWidgets import (
 from .models import ActivityEntry, ProfileState
 from .services.settings_service import Settings
 from .widgets.profile_card import ProfileCard
+from .widgets.setup_page import SetupPage
 from .widgets.theme import muted, muted_label_css
+
+# Tab order, so callers can open a specific page by name rather than index.
+TAB_DASHBOARD = 0
+TAB_ACCOUNTS = 1
+TAB_SETTINGS = 2
+TAB_PRIVACY = 3
 
 PRIVACY_STORED = [
     "UI preferences: refresh interval, notification thresholds, and the "
@@ -60,6 +67,7 @@ class MainWindow(QMainWindow):
     switchRequested = Signal(str)
     launchRequested = Signal(str)
     reloginRequested = Signal(str)
+    setupRequested = Signal(str)
     refreshRequested = Signal()
     settingsChanged = Signal(object)  # Settings
     clearHistoryRequested = Signal()
@@ -79,11 +87,15 @@ class MainWindow(QMainWindow):
         self._loading_settings = False
         self._cards: dict[str, ProfileCard] = {}
 
+        self.setup_page = SetupPage(tuple(s.profile for s in states))
+
         tabs = QTabWidget()
         tabs.addTab(self._build_dashboard(states, mock_mode), "Dashboard")
+        tabs.addTab(self.setup_page, "Accounts")
         tabs.addTab(self._build_settings(settings), "Settings")
         tabs.addTab(self._build_privacy(data_dir), "Privacy")
         self.setCentralWidget(tabs)
+        self._tabs = tabs
 
     # -- dashboard ----------------------------------------------------------
 
@@ -121,6 +133,7 @@ class MainWindow(QMainWindow):
             card.switchRequested.connect(self.switchRequested.emit)
             card.launchRequested.connect(self.launchRequested.emit)
             card.reloginRequested.connect(self.reloginRequested.emit)
+            card.setupRequested.connect(self.setupRequested.emit)
             cards_row.addWidget(card)
             self._cards[state.profile.key] = card
         layout.addLayout(cards_row)
@@ -323,9 +336,13 @@ class MainWindow(QMainWindow):
             if card is not None:
                 card.set_state(state)
 
+    def show_tab(self, index: int) -> None:
+        self._tabs.setCurrentIndex(index)
+
     def set_busy(self, busy: bool) -> None:
         for card in self._cards.values():
             card.set_busy(busy)
+        self.setup_page.set_busy(busy)
         self._refresh_button.setEnabled(not busy)
         self._refresh_button.setText("Refreshing…" if busy else "Refresh now")
 

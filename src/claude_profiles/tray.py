@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt, QUrl, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -11,7 +11,13 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
 )
 
-from .main_window import MainWindow
+from .main_window import (
+    TAB_ACCOUNTS,
+    TAB_DASHBOARD,
+    TAB_PRIVACY,
+    TAB_SETTINGS,
+    MainWindow,
+)
 from .models import DEFAULT_PROFILES, AccountList, ActivityEntry, ProfileState
 from .resources.icons import tray_icon
 from .services import autostart
@@ -19,7 +25,7 @@ from .services.cswap_client import CswapBackend, CswapError
 from .services.hotkeys import HotkeyManager
 from .services.notification_service import NotificationService
 from .services.polling_service import PollingService
-from .services.process_launcher import ProcessLauncher
+from .services.process_launcher import ProcessLauncher, find_claude
 from .services.profile_service import ProfileService
 from .services.settings_service import Settings, SettingsService
 from .widgets.compact_popup import CompactPopup
@@ -125,8 +131,15 @@ class TrayController(QObject):
 
         menu.addAction(QAction("Refresh now", menu, triggered=self._refresh))
         menu.addAction(QAction("Open full dashboard", menu, triggered=self._show_window))
-        menu.addAction(QAction("Settings", menu, triggered=lambda: self._show_window(tab=1)))
-        menu.addAction(QAction("Privacy", menu, triggered=lambda: self._show_window(tab=2)))
+        menu.addAction(
+            QAction("Set up accounts…", menu, triggered=self._show_setup)
+        )
+        menu.addAction(
+            QAction("Settings", menu, triggered=lambda: self._show_window(tab=TAB_SETTINGS))
+        )
+        menu.addAction(
+            QAction("Privacy", menu, triggered=lambda: self._show_window(tab=TAB_PRIVACY))
+        )
         menu.addSeparator()
         menu.addAction(QAction("Quit", menu, triggered=self._quit))
 
@@ -139,6 +152,8 @@ class TrayController(QObject):
         self.profiles.activityAdded.connect(self._on_activity)
         self.profiles.switchSucceeded.connect(self._on_switch_succeeded)
         self.profiles.switchFailed.connect(self._on_switch_failed)
+        self.profiles.setupSucceeded.connect(self._on_setup_succeeded)
+        self.profiles.setupFailed.connect(self._on_setup_failed)
         self.profiles.schemaWarning.connect(self._on_schema_warning)
 
         self.polling.pollSucceeded.connect(self._on_poll_succeeded)
@@ -148,9 +163,10 @@ class TrayController(QObject):
         self.popup.switchRequested.connect(self._switch)
         self.popup.launchRequested.connect(self._launch)
         self.popup.reloginRequested.connect(self._show_relogin)
+        self.popup.setupRequested.connect(lambda _key: self._show_setup())
         self.popup.refreshRequested.connect(self._refresh)
         self.popup.dashboardRequested.connect(self._show_window)
-        self.popup.settingsRequested.connect(lambda: self._show_window(tab=1))
+        self.popup.settingsRequested.connect(lambda: self._show_window(tab=TAB_SETTINGS))
         self.popup.quitRequested.connect(self._quit)
 
     def start(self) -> None:
@@ -240,17 +256,114 @@ class TrayController(QObject):
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         box.exec()
 
-    def _show_window(self, tab: int = 0) -> None:
+    def _show_window(self, tab: int = TAB_DASHBOARD) -> None:
         window = self._ensure_window()
-        central = window.centralWidget()
-        if hasattr(central, "setCurrentIndex"):
-            central.setCurrentIndex(tab)
+        window.show_tab(tab)
         window.update_states(self.profiles.states)
         window.set_activity(self.profiles.recent_activity())
         window.show()
         window.raise_()
         window.activateWindow()
         self.popup.hide()
+
+    @Slot()
+    def _show_setup(self) -> None:
+        """Open the Accounts page and read the current login fresh."""
+        self._show_window(tab=TAB_ACCOUNTS)
+        self._refresh_setup()
+
+    def _refresh_setup(self) -> None:
+        if self._window is None:
+            return
+        self._window.setup_page.update_accounts(
+            self.profiles.last_accounts, self.profiles.states
+        )
+        self.profiles.run_in_background(self._read_login)
+
+    def _read_login(self) -> None:
+        status = self.profiles.read_current_login()
+        QTimer.singleShot(0, lambda: self._apply_login(status))
+
+    def _apply_login(self, status) -> None:
+        if self._window is not None:
+            self._window.setup_page.update_login(status)
+
+    @Slot()
+    def _open_sign_in(self) -> None:
+        """Open a terminal running Claude Code so the user can sign in."""
+        claude = find_claude()
+        if claude is None:
+            message = (
+                "Could not find the Claude Code command. Open a terminal "
+                "yourself and run: claude"
+            )
+            self.profiles.log(message, level="error")
+            if self._window is not None:
+                self._window.setup_page.set_result(message, ok=False)
+            return
+
+        result = self.launcher.launch([claude], "Sign in to Claude Code")
+        if result.ok:
+            message = (
+                "Opened a terminal running Claude Code. Sign in there (type "
+                "/login to change account), then press Re-check."
+            )
+            self.profiles.log("Opened a terminal to sign in to Claude Code")
+        else:
+            message = result.message
+            self.profiles.log(f"Sign-in terminal failed - {message}", level="error")
+        if self._window is not None:
+            self._window.setup_page.set_result(message, ok=result.ok)
+
+    @Slot(str)
+    def _register_profile(self, key: str) -> None:
+        state = self.profiles.state(key)
+        if state is None or self.profiles.is_busy:
+            return
+
+        login = self.profiles.last_status
+        email = login.email if login and login.email else "the signed-in account"
+        confirm = QMessageBox()
+        confirm.setWindowTitle(f"Register as {state.profile.name}")
+        confirm.setTextFormat(Qt.TextFormat.RichText)
+        confirm.setText(
+            f"<p>Store <b>{email}</b> as your <b>{state.profile.name}</b> profile?</p>"
+            "<p>claude-swap records whichever account Claude Code is signed in "
+            "as right now. If that address is not the one you want, close this, "
+            "sign in as the right account, then press Re-check.</p>"
+        )
+        confirm.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if confirm.exec() != QMessageBox.StandardButton.Ok:
+            return
+
+        self.profiles.run_in_background(self._do_register, key)
+
+    def _do_register(self, key: str) -> None:
+        self.profiles.register_current_as(key)
+        status = self.profiles.read_current_login()
+        QTimer.singleShot(0, lambda: self._after_setup(status))
+
+    @Slot(int, str)
+    def _assign_alias(self, number: int, key: str) -> None:
+        if self.profiles.is_busy:
+            return
+        self.profiles.run_in_background(self._do_assign_alias, number, key)
+
+    def _do_assign_alias(self, number: int, key: str) -> None:
+        self.profiles.assign_alias(number, key)
+        status = self.profiles.read_current_login()
+        QTimer.singleShot(0, lambda: self._after_setup(status))
+
+    def _after_setup(self, status) -> None:
+        if self._window is None:
+            return
+        self._window.setup_page.update_login(status)
+        self._window.setup_page.update_accounts(
+            self.profiles.last_accounts, self.profiles.states
+        )
 
     def _ensure_window(self) -> MainWindow:
         if self._window is None:
@@ -263,10 +376,16 @@ class TrayController(QObject):
             window.switchRequested.connect(self._switch)
             window.launchRequested.connect(self._launch)
             window.reloginRequested.connect(self._show_relogin)
+            window.setupRequested.connect(lambda _key: self._show_setup())
             window.refreshRequested.connect(self._refresh)
             window.settingsChanged.connect(self._on_settings_changed)
             window.clearHistoryRequested.connect(self._clear_history)
             window.openDataFolderRequested.connect(self._open_data_folder)
+
+            window.setup_page.signInRequested.connect(self._open_sign_in)
+            window.setup_page.registerRequested.connect(self._register_profile)
+            window.setup_page.assignAliasRequested.connect(self._assign_alias)
+            window.setup_page.refreshRequested.connect(self._refresh_setup)
             self._window = window
         return self._window
 
@@ -393,6 +512,19 @@ class TrayController(QObject):
         state = self.profiles.state(key)
         name = state.profile.name if state else key
         self._notify_plain(f"Could not switch to {name}", message)
+        self._set_status(message)
+
+    @Slot(str, str)
+    def _on_setup_succeeded(self, key: str, message: str) -> None:
+        if self._window is not None:
+            self._window.setup_page.set_result(message, ok=True)
+        self._notify_plain("Claude Profiles", message)
+        self._set_status(message)
+
+    @Slot(str, str)
+    def _on_setup_failed(self, key: str, message: str) -> None:
+        if self._window is not None:
+            self._window.setup_page.set_result(message, ok=False)
         self._set_status(message)
 
     @Slot(int)

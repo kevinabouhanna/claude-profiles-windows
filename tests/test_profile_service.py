@@ -313,3 +313,125 @@ def test_activity_timestamps_round_trip_in_local_time(service):
 
     reloaded = svc.recent_activity()[-1]
     assert emitted[-1].timestamp.strftime("%H:%M") == reloaded.timestamp.strftime("%H:%M")
+
+
+# --- account setup --------------------------------------------------------
+
+
+@pytest.fixture
+def empty_service(settings_service):
+    backend = MockCswapClient("no_accounts")
+    svc = ProfileService(backend, settings_service)
+    svc.refresh_sync()
+    return svc, backend
+
+
+def test_setup_starts_with_nothing_registered(empty_service):
+    svc, _ = empty_service
+    assert svc.state("personal").is_registered is False
+    assert svc.state("work").is_registered is False
+
+
+def test_read_current_login_reports_unmanaged(empty_service):
+    svc, _ = empty_service
+    status = svc.read_current_login()
+    assert status is not None
+    assert status.managed is False
+    assert status.email is not None
+    assert svc.last_status is status
+
+
+def test_register_current_account(empty_service):
+    svc, backend = empty_service
+
+    ok, message = svc.register_current_as("personal")
+
+    assert ok is True
+    assert "add:personal" in backend.calls
+    assert svc.state("personal").is_registered is True
+    assert "@example.invalid" in message
+
+
+def test_registering_both_profiles_in_sequence(empty_service):
+    svc, backend = empty_service
+
+    assert svc.register_current_as("personal")[0] is True
+    assert svc.register_current_as("work")[0] is True
+
+    assert svc.state("personal").is_registered is True
+    assert svc.state("work").is_registered is True
+    # A freshly set-up install has exactly one active profile.
+    assert sum(1 for s in svc.states if s.is_active) == 1
+
+
+def test_register_duplicate_alias_fails_safely(empty_service):
+    svc, _ = empty_service
+    svc.register_current_as("personal")
+
+    ok, message = svc.register_current_as("personal")
+
+    assert ok is False
+    assert "already registered" in message.lower()
+    assert svc.state("personal").is_registered is True  # unchanged
+
+
+def test_register_failure_reports_and_clears_busy(empty_service):
+    svc, backend = empty_service
+    backend.fail_next_add = CswapError(
+        CswapErrorKind.REPORTED, "No Claude Code credentials were found."
+    )
+    seen: list[bool] = []
+    svc.busyChanged.connect(seen.append)
+
+    ok, message = svc.register_current_as("work")
+
+    assert ok is False
+    assert "No Claude Code credentials" in message
+    assert svc.is_busy is False
+    assert seen == [True, False]
+
+
+def test_register_emits_setup_signals(empty_service):
+    svc, _ = empty_service
+    succeeded: list[tuple[str, str]] = []
+    svc.setupSucceeded.connect(lambda k, m: succeeded.append((k, m)))
+
+    svc.register_current_as("work")
+
+    assert succeeded and succeeded[0][0] == "work"
+
+
+def test_assign_alias_to_existing_account(service):
+    svc, backend = service
+    svc.refresh_sync()
+
+    ok, message = svc.assign_alias(2, "work")
+
+    assert ok is True
+    assert "alias:2:work" in backend.calls
+    assert "Work" in message
+
+
+def test_setup_is_rejected_while_busy(empty_service):
+    svc, _ = empty_service
+    svc._set_busy(True)
+    try:
+        ok, message = svc.register_current_as("personal")
+        assert ok is False
+        assert "still running" in message
+    finally:
+        svc._set_busy(False)
+
+
+def test_setup_activity_lines_are_safe(empty_service):
+    svc, backend = empty_service
+    backend.fail_next_add = CswapError(
+        CswapErrorKind.REPORTED,
+        'failed: access_token="sk-ant-api03-ABCDEF1234567890"',
+    )
+    svc.register_current_as("work")
+    svc.register_current_as("personal")
+
+    for entry in svc.recent_activity():
+        assert not contains_secret(entry.message), entry.message
+        assert "sk-ant" not in entry.message

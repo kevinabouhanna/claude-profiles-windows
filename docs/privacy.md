@@ -88,10 +88,12 @@ including entries generated from deliberately poisoned error messages.
 - **It cannot switch your browser session.** Signing in to claude.ai in a browser is entirely
   separate and unaffected. The UI never claims otherwise.
 - **It cannot terminate anything.** Claude Code, VS Code, terminals, and open chats are left alone.
-- **It cannot authenticate for you.** Re-login is always manual: you run `claude`, sign in, then run
-  `cswap add --alias <alias>`.
-- **It cannot run arbitrary commands.** Only `cswap list`, `status`, `switch`, and `run` are
-  reachable, through typed methods with validated arguments and no shell.
+- **It cannot authenticate for you.** The Accounts tab can open a terminal running Claude Code and
+  can register an account that is *already* signed in, but the sign-in itself happens in Claude
+  Code, in that terminal, driven by you. No credential passes through this app.
+- **It cannot run arbitrary commands.** Only `cswap list`, `status`, `switch`, `run`, `add`, and
+  `alias` are reachable, through typed methods with validated arguments and no shell. `remove`,
+  `purge`, `export`, `import`, `add-token`, and `config` are refused.
 - **It cannot modify credentials.** Every credential operation belongs to claude-swap.
 
 ## Windows integration, all opt-in

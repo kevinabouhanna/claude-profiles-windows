@@ -69,12 +69,22 @@ class MockCswapClient:
         self.scenario = scenario
         self._started = time.monotonic()
         self._active_alias = "personal"
+        # Which aliases are registered. "no_accounts" starts empty so the
+        # setup flow can be exercised end to end in demo mode.
+        self._registered: list[str] = [] if scenario == "no_accounts" else ["personal", "work"]
+        # Who Claude Code is currently signed in as, for `add` to pick up.
+        self._signed_in_email = WORK_EMAIL
         # Test hooks.
         self.calls: list[str] = []
         self.fail_next_list: CswapError | None = None
         self.fail_next_switch: CswapError | None = None
+        self.fail_next_add: CswapError | None = None
         self.switch_delay = 0.0
         self._counter = itertools.count()
+
+    def set_signed_in(self, email: str) -> None:
+        """Simulate the user signing in to Claude Code as a different account."""
+        self._signed_in_email = email
 
     @property
     def is_available(self) -> bool:
@@ -179,9 +189,7 @@ class MockCswapClient:
         return account
 
     def _payload(self) -> dict[str, Any]:
-        if self.scenario == "no_accounts":
-            return {"schemaVersion": 1, "activeAccountNumber": None, "accounts": []}
-        accounts = [self._account("personal"), self._account("work")]
+        accounts = [self._account(alias) for alias in self._registered]
         active = next((a["number"] for a in accounts if a["active"]), None)
         return {
             "schemaVersion": 99 if self.scenario == "unknown_schema" else 1,
@@ -200,9 +208,12 @@ class MockCswapClient:
 
     def status(self) -> ActiveStatus:
         self.calls.append("status")
-        if self.scenario == "no_accounts":
+        if not self._registered:
             return ActiveStatus.parse(
-                {"schemaVersion": 1, "active": {"email": WORK_EMAIL, "managed": False}}
+                {
+                    "schemaVersion": 1,
+                    "active": {"email": self._signed_in_email, "managed": False},
+                }
             )
         email = PERSONAL_EMAIL if self._active_alias == "personal" else WORK_EMAIL
         return ActiveStatus.parse(
@@ -226,6 +237,26 @@ class MockCswapClient:
                 "active": {"email": email, "number": 1 if alias == "personal" else 2},
             }
         )
+
+    def add_current_account(self, alias: str) -> str:
+        self.calls.append(f"add:{alias}")
+        if self.fail_next_add is not None:
+            error, self.fail_next_add = self.fail_next_add, None
+            raise error
+        if alias in self._registered:
+            raise CswapError(
+                CswapErrorKind.REPORTED,
+                f"An account is already registered as '{alias}'.",
+            )
+        self._registered.append(alias)
+        self._registered.sort(key=lambda a: 0 if a == "personal" else 1)
+        if len(self._registered) == 1:
+            self._active_alias = alias
+        return f"Added the signed-in account as '{alias}'."
+
+    def set_alias(self, number: int, alias: str) -> str:
+        self.calls.append(f"alias:{number}:{alias}")
+        return f"Account {number} is now aliased '{alias}'."
 
     def build_run_command(self, number: int) -> list[str]:
         self.calls.append(f"run:{number}")

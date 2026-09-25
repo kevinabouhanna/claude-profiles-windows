@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal
 from ..models import (
     DEFAULT_PROFILES,
     AccountList,
+    ActiveStatus,
     ActivityEntry,
     Profile,
     ProfileState,
@@ -36,6 +37,8 @@ class ProfileService(QObject):
     activityAdded = Signal(object)  # ActivityEntry
     switchSucceeded = Signal(str)  # profile key
     switchFailed = Signal(str, str)  # profile key, user-safe message
+    setupSucceeded = Signal(str, str)  # profile key, user-safe message
+    setupFailed = Signal(str, str)  # profile key, user-safe message
     schemaWarning = Signal(int)  # unrecognised schemaVersion
 
     def __init__(
@@ -56,6 +59,9 @@ class ProfileService(QObject):
         self._busy_lock = threading.Lock()
         self._last_active_key: str | None = None
         self._warned_schema = False
+        # Retained so the setup page can show accounts that carry no alias yet.
+        self.last_accounts: AccountList | None = None
+        self.last_status: ActiveStatus | None = None
 
     # -- state --------------------------------------------------------------
 
@@ -108,6 +114,7 @@ class ProfileService(QObject):
 
     def apply_accounts(self, accounts: AccountList) -> None:
         """Fold a ``list --json`` result into per-profile state."""
+        self.last_accounts = accounts
         if not accounts.is_known_schema and not self._warned_schema:
             self._warned_schema = True
             self.schemaWarning.emit(accounts.schema_version)
@@ -231,6 +238,94 @@ class ProfileService(QObject):
             return True, message
         finally:
             self._set_busy(False)
+
+    # -- account setup ------------------------------------------------------
+
+    def read_current_login(self) -> ActiveStatus | None:
+        """Ask cswap who Claude Code is signed in as right now.
+
+        This is what makes ``add`` safe to offer from a button: the user can
+        see which account is about to be registered before they click.
+        """
+        try:
+            status = self._backend.status()
+        except CswapError as exc:
+            self.log(f"Could not read the current login - {exc.user_message}", level="error")
+            return None
+        self.last_status = status
+        return status
+
+    def register_current_as(self, key: str) -> tuple[bool, str]:
+        """Register the signed-in Claude Code account under a profile's alias.
+
+        Runs ``cswap add --alias <alias>``. No authentication happens here -
+        signing in is something the user does in Claude Code beforehand.
+        """
+        state = self._states.get(key)
+        if state is None:
+            return False, "Unknown profile."
+        if self._busy:
+            return False, "Another action is still running."
+
+        self._set_busy(True)
+        try:
+            try:
+                self._backend.add_current_account(state.profile.alias)
+            except CswapError as exc:
+                message = exc.user_message
+                self.log(
+                    f"Could not register {state.profile.name} - {message}", level="error"
+                )
+                self.setupFailed.emit(key, message)
+                return False, message
+
+            self.refresh_sync()
+            registered = self.state(key)
+            if registered is not None and registered.account is not None:
+                message = (
+                    f"Registered {registered.account.email} as {state.profile.name}."
+                )
+            else:
+                message = f"Registered the signed-in account as {state.profile.name}."
+            self.log(message)
+            self.setupSucceeded.emit(key, message)
+            return True, message
+        finally:
+            self._set_busy(False)
+
+    def assign_alias(self, number: int, key: str) -> tuple[bool, str]:
+        """Give an already-registered account this profile's alias."""
+        state = self._states.get(key)
+        if state is None:
+            return False, "Unknown profile."
+        if self._busy:
+            return False, "Another action is still running."
+
+        self._set_busy(True)
+        try:
+            try:
+                self._backend.set_alias(number, state.profile.alias)
+            except CswapError as exc:
+                message = exc.user_message
+                self.log(f"Could not set the alias - {message}", level="error")
+                self.setupFailed.emit(key, message)
+                return False, message
+
+            self.refresh_sync()
+            message = f"Account {number} is now {state.profile.name}."
+            self.log(message)
+            self.setupSucceeded.emit(key, message)
+            return True, message
+        finally:
+            self._set_busy(False)
+
+    def run_in_background(self, func, *args) -> None:
+        """Run a blocking service call off the UI thread."""
+        if self._busy:
+            return
+        threading.Thread(
+            target=func, args=args, name="cswap-action", daemon=True
+        ).start()
 
     def switch(self, key: str) -> None:
         """Fire-and-forget switch on a worker thread."""

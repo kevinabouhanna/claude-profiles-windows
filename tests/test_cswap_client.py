@@ -206,13 +206,9 @@ def test_nonzero_exit_without_error_envelope(make_client):
 # --- allowlist ------------------------------------------------------------
 
 
-def test_allowlist_contains_only_documented_commands():
-    assert set(ALLOWED_COMMANDS) == {"list", "status", "switch", "run"}
-
-
 @pytest.mark.parametrize(
     "command",
-    ["add", "remove", "purge", "export", "import", "config", "auto", "add-token"],
+    ["remove", "purge", "export", "import", "config", "auto", "add-token", "unclaimed"],
 )
 def test_disallowed_commands_are_refused(make_client, command):
     client, runner = make_client("{}")
@@ -308,3 +304,86 @@ def test_switch_timeout_is_reported_as_timeout(make_client):
     with pytest.raises(CswapError) as excinfo:
         client.switch("work")
     assert excinfo.value.kind is CswapErrorKind.TIMEOUT
+
+
+# --- setup commands (add / alias) -----------------------------------------
+
+
+def test_allowlist_includes_setup_commands_only():
+    """Setup added `add` and `alias`; nothing destructive came with them."""
+    assert set(ALLOWED_COMMANDS) == {"list", "status", "switch", "run", "add", "alias"}
+    for destructive in ("remove", "purge", "export", "import", "add-token", "config"):
+        assert destructive not in ALLOWED_COMMANDS
+
+
+def test_add_sends_alias_flag(make_client):
+    client, runner = make_client(FakeCompleted(stdout="Added account 2.", returncode=0))
+    message = client.add_current_account("work")
+    assert runner.last_args[1:] == ["add", "--alias", "work"]
+    assert "Added account 2" in message
+
+
+def test_add_failure_surfaces_redacted_output(make_client):
+    client, _ = make_client(
+        FakeCompleted(
+            stdout="",
+            stderr='no credentials: access_token="sk-ant-api03-SECRETVALUE123456"',
+            returncode=1,
+        )
+    )
+    with pytest.raises(CswapError) as excinfo:
+        client.add_current_account("work")
+    assert excinfo.value.kind is CswapErrorKind.REPORTED
+    # Diagnostics are sanitised, not raw.
+    assert "sk-ant" not in excinfo.value.user_message
+    assert "no credentials" in excinfo.value.user_message
+
+
+def test_add_rejects_invalid_alias(make_client):
+    client, runner = make_client("")
+    for bad in ("", "Work", "has space", "--flag", "123", "a" * 40):
+        with pytest.raises(CswapError) as excinfo:
+            client.add_current_account(bad)
+        assert excinfo.value.kind is CswapErrorKind.DISALLOWED
+    assert runner.calls == []
+
+
+def test_alias_command_shape(make_client):
+    client, runner = make_client(FakeCompleted(stdout="ok", returncode=0))
+    client.set_alias(2, "work")
+    assert runner.last_args[1:] == ["alias", "2", "work"]
+
+
+def test_alias_rejects_bad_number(make_client):
+    client, runner = make_client("")
+    for bad in (-1, "2", None):
+        with pytest.raises(CswapError):
+            client.set_alias(bad, "work")  # type: ignore[arg-type]
+    assert runner.calls == []
+
+
+def test_purely_numeric_alias_is_refused(make_client):
+    """cswap requires aliases not be numeric, or they collide with slots."""
+    client, _ = make_client("")
+    with pytest.raises(CswapError):
+        client.set_alias(1, "42")
+
+
+def test_setup_commands_never_use_a_shell(make_client):
+    client, runner = make_client(FakeCompleted(stdout="ok", returncode=0))
+    client.add_current_account("work")
+    assert runner.kwargs[-1].get("shell") in (None, False)
+
+
+def test_add_timeout_is_reported(make_client):
+    client, _ = make_client(subprocess.TimeoutExpired(cmd="cswap", timeout=45))
+    with pytest.raises(CswapError) as excinfo:
+        client.add_current_account("work")
+    assert excinfo.value.kind is CswapErrorKind.TIMEOUT
+
+
+def test_add_with_missing_executable():
+    client = CswapClient(executable=None, discover=False)
+    with pytest.raises(CswapError) as excinfo:
+        client.add_current_account("work")
+    assert excinfo.value.kind is CswapErrorKind.NOT_INSTALLED

@@ -27,10 +27,23 @@ from ..models import AccountList, ActiveStatus, SwitchOutcome
 from .redaction import redact
 
 # Subcommands this app is ever permitted to invoke.
-ALLOWED_COMMANDS: frozenset[str] = frozenset({"list", "status", "switch", "run"})
+#
+# ``add`` and ``alias`` exist so accounts can be set up from the UI. Neither
+# performs authentication: ``add`` registers whichever account Claude Code is
+# *already* signed in as, and signing in remains an interactive terminal step
+# the user performs themselves. Everything destructive - remove, purge, export,
+# import, add-token, config - stays out.
+ALLOWED_COMMANDS: frozenset[str] = frozenset(
+    {"list", "status", "switch", "run", "add", "alias"}
+)
+
+# Commands that mutate stored accounts. Only ever run from an explicit click.
+MUTATING_COMMANDS: frozenset[str] = frozenset({"switch", "add", "alias"})
 
 # Aliases are the only identifiers we accept from configuration.
-ALIAS_PATTERN = re.compile(r"\A[a-z0-9][a-z0-9_\-]{0,31}\Z")
+# cswap additionally requires an alias not be purely numeric, since that would
+# collide with slot numbers.
+ALIAS_PATTERN = re.compile(r"\A(?!\d+\Z)[a-z0-9][a-z0-9_\-.]{0,31}\Z")
 
 # Belt-and-braces check on every argv element.
 _SAFE_ARG = re.compile(r"\A[A-Za-z0-9_\-.@]{1,64}\Z")
@@ -86,6 +99,10 @@ class CswapBackend(Protocol):
     def status(self) -> ActiveStatus: ...
 
     def switch(self, alias: str, *, fallback_number: int | None = None) -> SwitchOutcome: ...
+
+    def add_current_account(self, alias: str) -> str: ...
+
+    def set_alias(self, number: int, alias: str) -> str: ...
 
     def build_run_command(self, number: int) -> list[str]: ...
 
@@ -277,6 +294,77 @@ class CswapClient:
             else:
                 raise
         return SwitchOutcome.parse(payload)
+
+    # -- setup commands (no --json support upstream) ------------------------
+
+    def _invoke_text(self, args: list[str], timeout: float) -> str:
+        """Run a subcommand that does not support ``--json``.
+
+        ``--json`` is accepted only by ``list``, ``status``, and ``switch``, so
+        ``add`` and ``alias`` report through their exit code and plain text.
+        Output is redacted before it is returned, and callers re-read
+        authoritative state from ``list --json`` rather than parsing it.
+        """
+        self._validate(args)
+        if self._executable is None:
+            raise CswapError(
+                CswapErrorKind.NOT_INSTALLED,
+                "claude-swap is not installed or not on PATH. "
+                "Install it with: uv tool install claude-swap",
+            )
+
+        argv = [self._executable, *args]
+        kwargs: dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "env": os.environ.copy(),
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = _CREATE_NO_WINDOW
+
+        try:
+            completed = self._runner(argv, **kwargs)
+        except FileNotFoundError as exc:
+            raise CswapError(
+                CswapErrorKind.NOT_INSTALLED,
+                "claude-swap could not be launched. Check that it is installed.",
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise CswapError(
+                CswapErrorKind.TIMEOUT,
+                f"claude-swap did not respond within {timeout:.0f} seconds.",
+            ) from exc
+
+        combined = f"{completed.stdout or ''}\n{completed.stderr or ''}".strip()
+        message = redact(combined, aggressive=True).strip()
+        if getattr(completed, "returncode", 0) not in (0, None):
+            raise CswapError(
+                CswapErrorKind.REPORTED,
+                message or "claude-swap could not complete that request.",
+            )
+        return message
+
+    def add_current_account(self, alias: str) -> str:
+        """``cswap add --alias <alias>``.
+
+        Registers whichever account Claude Code is **currently signed in as**.
+        This performs no authentication of its own - the user signs in through
+        Claude Code first, in a terminal, and this only records the result.
+        """
+        if not ALIAS_PATTERN.match(alias):
+            raise CswapError(CswapErrorKind.DISALLOWED, "Refused an invalid profile alias.")
+        return self._invoke_text(["add", "--alias", alias], self._switch_timeout)
+
+    def set_alias(self, number: int, alias: str) -> str:
+        """``cswap alias <number> <alias>`` for an already-registered account."""
+        if not isinstance(number, int) or number < 0:
+            raise CswapError(CswapErrorKind.DISALLOWED, "Refused an invalid account number.")
+        if not ALIAS_PATTERN.match(alias):
+            raise CswapError(CswapErrorKind.DISALLOWED, "Refused an invalid profile alias.")
+        return self._invoke_text(["alias", str(number), alias], self._timeout)
 
     def build_run_command(self, number: int) -> list[str]:
         """argv for ``cswap run <number>``.

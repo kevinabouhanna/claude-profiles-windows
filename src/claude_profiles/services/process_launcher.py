@@ -39,6 +39,24 @@ def find_powershell() -> str | None:
     return shutil.which("pwsh") or shutil.which("powershell")
 
 
+def find_claude() -> str | None:
+    """Locate the Claude Code CLI, used only to open an interactive sign-in.
+
+    Sign-in is an interactive OAuth flow that belongs in a real terminal, so the
+    app opens one and steps back rather than trying to drive it.
+    """
+    found = shutil.which("claude")
+    if found:
+        return found
+    for candidate in (
+        Path.home() / ".local" / "bin" / "claude.exe",
+        Path.home() / ".local" / "bin" / "claude",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def _quote_for_powershell(value: str) -> str:
     """Single-quote a path for PowerShell, escaping embedded quotes."""
     return "'" + value.replace("'", "''") + "'"

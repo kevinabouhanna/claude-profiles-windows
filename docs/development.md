@@ -60,6 +60,7 @@ backend.calls                   # recorded invocations
 | `test_redaction.py` | Each secret pattern, idempotence, and no-false-positive checks on UUIDs and timestamps. |
 | `test_profile_service.py` | Alias mapping, switch success/failure/timeout, busy lifecycle, activity-log safety. |
 | `test_polling_service.py` | 50-thread overlap test, backoff ladder, last-known-value retention. |
+| `test_process_launcher.py` | PowerShell quoting, Windows Terminal argv, console-flag handling. |
 
 ### Testing conventions
 
@@ -85,6 +86,8 @@ degrade rather than crash.
 
 - `services/cswap_client.py` is the **only** module that may spawn `cswap` with captured output.
 - Never add a method that accepts a free-form command string.
+- Keep the allowlist minimal. `add` and `alias` were added deliberately for in-app setup;
+  anything that removes, exports, or rewrites stored accounts stays out.
 - Never log raw stdout or stderr. Route every diagnostic through `redaction.py`.
 - Never read or write `.credentials.json`, `.claude-swap-backup\`, or session files.
 - Keep every new setting **off** by default if it writes anything outside the app's data folder.

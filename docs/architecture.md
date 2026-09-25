@@ -136,8 +136,17 @@ timeout, and unexpected exceptions alike — each of which has a test.
 **Trust boundary.** Two kinds of I/O exist: spawning `cswap` with allowlisted argv, and reading and
 writing the app's own preference file. No networking library is imported anywhere.
 
-**Allowlist.** `ALLOWED_COMMANDS = {list, status, switch, run}`. There is no method that accepts a
-command string. Aliases must match `^[a-z0-9][a-z0-9_-]{0,31}$` *and* correspond to a configured
+**Allowlist.** `ALLOWED_COMMANDS = {list, status, switch, run, add, alias}`. There is no method that
+accepts a command string.
+
+`add` and `alias` exist so accounts can be set up from the Accounts tab. Neither authenticates:
+`add` records whichever account Claude Code is *already* signed in as, and signing in stays an
+interactive terminal step the user performs. Everything destructive — `remove`, `purge`, `export`,
+`import`, `add-token`, `config` — remains refused, with a test asserting it.
+
+Upstream accepts `--json` only on `list`, `status`, and `switch` (cli.py:1301), so `add` and `alias`
+report through exit codes and plain text. `_invoke_text` redacts their combined output before it is
+returned, and callers re-read authoritative state from `list --json` rather than parsing it. Aliases must match `^[a-z0-9][a-z0-9_-]{0,31}$` *and* correspond to a configured
 profile; every argv element is additionally checked against a conservative character class. Tests
 assert that `add`, `remove`, `purge`, `export`, `import`, `config`, and `auto` are all refused and
 that nothing is spawned when validation fails.
