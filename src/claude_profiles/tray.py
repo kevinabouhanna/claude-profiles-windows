@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,6 +31,7 @@ from .services.profile_service import ProfileService
 from .services.settings_service import Settings, SettingsService
 from .widgets import theme
 from .widgets.compact_popup import CompactPopup
+from .widgets.setup_dialog import SetupDialog
 from .widgets.status_badge import format_age
 
 SWITCH_HINT = (
@@ -58,6 +59,12 @@ RELOGIN_INSTRUCTIONS = (
 class TrayController(QObject):
     """Owns the tray icon and mediates between services and windows."""
 
+    # Worker threads report back through signals. QTimer.singleShot cannot be
+    # used from a non-GUI thread: it creates the timer in the calling thread,
+    # which has no event loop, so the callback is silently never invoked.
+    loginReady = Signal(object)  # ActiveStatus | None
+    registerDone = Signal(bool, str, object)  # ok, message, ActiveStatus | None
+
     def __init__(
         self,
         app: QApplication,
@@ -73,6 +80,7 @@ class TrayController(QObject):
         self._settings: Settings = settings_service.load()
         self._mock_mode = mock_mode
         self._window: MainWindow | None = None
+        self._setup_dialog: SetupDialog | None = None
         self._last_error: str | None = None
 
         self.profiles = ProfileService(backend, settings_service, DEFAULT_PROFILES, parent=self)
@@ -170,6 +178,8 @@ class TrayController(QObject):
         self.profiles.setupSucceeded.connect(self._on_setup_succeeded)
         self.profiles.setupFailed.connect(self._on_setup_failed)
         self.profiles.schemaWarning.connect(self._on_schema_warning)
+        self.loginReady.connect(self._apply_login)
+        self.registerDone.connect(self._on_register_done)
 
         self.polling.pollSucceeded.connect(self._on_poll_succeeded)
         self.polling.pollFailed.connect(self._on_poll_failed)
@@ -178,7 +188,7 @@ class TrayController(QObject):
         self.popup.switchRequested.connect(self._switch)
         self.popup.launchRequested.connect(self._launch)
         self.popup.reloginRequested.connect(self._show_relogin)
-        self.popup.setupRequested.connect(lambda _key: self._show_setup())
+        self.popup.setupRequested.connect(self._show_setup)
         self.popup.refreshRequested.connect(self._refresh)
         self.popup.dashboardRequested.connect(self._show_window)
         self.popup.settingsRequested.connect(lambda: self._show_window(tab=TAB_SETTINGS))
@@ -276,16 +286,112 @@ class TrayController(QObject):
         window.show_tab(tab)
         window.update_states(self.profiles.states)
         window.set_activity(self.profiles.recent_activity())
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        self._present(window)
+
+    def _present(self, window) -> None:
+        """Bring a window to the foreground from inside a popup or tray menu.
+
+        Both the flyout and the tray menu are Qt popups holding an input grab.
+        Windows refuses a foreground change while that grab is held, so calling
+        show()/activateWindow() directly leaves the window open but *behind*
+        whatever the user was looking at - indistinguishable from nothing
+        happening. Releasing the grab first and activating on the next event
+        loop turn is what makes it actually appear.
+        """
         self.popup.hide()
 
+        def bring_forward() -> None:
+            window.setWindowState(
+                (window.windowState() & ~Qt.WindowState.WindowMinimized)
+                | Qt.WindowState.WindowActive
+            )
+            window.show()
+            window.raise_()
+            window.activateWindow()
+
+        QTimer.singleShot(0, bring_forward)
+
     @Slot()
-    def _show_setup(self) -> None:
-        """Open the Accounts page and read the current login fresh."""
+    def _show_setup(self, key: str = "") -> None:
+        """Open setup.
+
+        With a profile key this opens the focused wizard for that profile,
+        which is what the card buttons want. Without one it opens the Accounts
+        page, which gives an overview of every account claude-swap knows.
+        """
+        if key:
+            self._open_setup_dialog(key)
+            return
         self._show_window(tab=TAB_ACCOUNTS)
         self._refresh_setup()
+
+    def _open_setup_dialog(self, key: str) -> None:
+        state = self.profiles.state(key)
+        if state is None:
+            return
+        self.popup.hide()
+
+        dialog = SetupDialog(state.profile, self.profiles.read_current_login)
+        dialog.signInRequested.connect(lambda: self._start_sign_in(dialog))
+        dialog.registerRequested.connect(
+            lambda profile_key: self._register_from_dialog(dialog, profile_key)
+        )
+        dialog.finished.connect(lambda _: self._on_setup_dialog_closed())
+        self._setup_dialog = dialog
+
+        # Same foreground rule as the main window: release the popup grab, then
+        # show on the next turn or the dialog opens behind everything.
+        def present() -> None:
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            dialog.start()
+
+        QTimer.singleShot(0, present)
+
+    def _on_setup_dialog_closed(self) -> None:
+        self._setup_dialog = None
+        self._refresh()
+
+    def _start_sign_in(self, dialog: SetupDialog) -> None:
+        """Launch ``claude auth login``, which opens the browser for OAuth."""
+        claude = find_claude()
+        if claude is None:
+            dialog.set_result(
+                "Could not find the Claude Code command. Open a terminal and "
+                "run: claude auth login",
+                ok=False,
+            )
+            return
+
+        result = self.launcher.launch(
+            [claude, "auth", "login"], f"Sign in — {dialog.profile.name}"
+        )
+        if result.ok:
+            self.profiles.log("Opened a terminal to sign in to Claude Code")
+            dialog.begin_waiting()
+        else:
+            self.profiles.log(f"Sign-in terminal failed - {result.message}", level="error")
+            dialog.set_result(result.message, ok=False)
+
+    def _register_from_dialog(self, dialog: SetupDialog, key: str) -> None:
+        if self.profiles.is_busy:
+            return
+        dialog.set_busy(True)
+        self.profiles.run_in_background(self._do_register_for_dialog, key)
+
+    def _do_register_for_dialog(self, key: str) -> None:
+        ok, message = self.profiles.register_current_as(key)
+        self.registerDone.emit(ok, message, self.profiles.read_current_login())
+
+    @Slot(bool, str, object)
+    def _on_register_done(self, ok: bool, message: str, status) -> None:
+        dialog = self._setup_dialog
+        if dialog is not None:
+            dialog.set_busy(False)
+            dialog.set_result(message, ok=ok)
+            dialog.update_status(status)
+        self._after_setup(status)
 
     def _refresh_setup(self) -> None:
         if self._window is None:
@@ -296,8 +402,7 @@ class TrayController(QObject):
         self.profiles.run_in_background(self._read_login)
 
     def _read_login(self) -> None:
-        status = self.profiles.read_current_login()
-        QTimer.singleShot(0, lambda: self._apply_login(status))
+        self.loginReady.emit(self.profiles.read_current_login())
 
     def _apply_login(self, status) -> None:
         if self._window is not None:
@@ -310,18 +415,21 @@ class TrayController(QObject):
         if claude is None:
             message = (
                 "Could not find the Claude Code command. Open a terminal "
-                "yourself and run: claude"
+                "yourself and run: claude auth login"
             )
             self.profiles.log(message, level="error")
             if self._window is not None:
                 self._window.setup_page.set_result(message, ok=False)
             return
 
-        result = self.launcher.launch([claude], "Sign in to Claude Code")
+        result = self.launcher.launch(
+            [claude, "auth", "login"], "Sign in to Claude Code"
+        )
         if result.ok:
             message = (
-                "Opened a terminal running Claude Code. Sign in there (type "
-                "/login to change account), then press Re-check."
+                "Opened a terminal running claude auth login. Your browser "
+                "should open for sign-in; come back and press Re-check when "
+                "it finishes."
             )
             self.profiles.log("Opened a terminal to sign in to Claude Code")
         else:
@@ -357,9 +465,8 @@ class TrayController(QObject):
         self.profiles.run_in_background(self._do_register, key)
 
     def _do_register(self, key: str) -> None:
-        self.profiles.register_current_as(key)
-        status = self.profiles.read_current_login()
-        QTimer.singleShot(0, lambda: self._after_setup(status))
+        ok, message = self.profiles.register_current_as(key)
+        self.registerDone.emit(ok, message, self.profiles.read_current_login())
 
     @Slot(int, str)
     def _assign_alias(self, number: int, key: str) -> None:
@@ -368,9 +475,8 @@ class TrayController(QObject):
         self.profiles.run_in_background(self._do_assign_alias, number, key)
 
     def _do_assign_alias(self, number: int, key: str) -> None:
-        self.profiles.assign_alias(number, key)
-        status = self.profiles.read_current_login()
-        QTimer.singleShot(0, lambda: self._after_setup(status))
+        ok, message = self.profiles.assign_alias(number, key)
+        self.registerDone.emit(ok, message, self.profiles.read_current_login())
 
     def _after_setup(self, status) -> None:
         if self._window is None:
@@ -391,7 +497,7 @@ class TrayController(QObject):
             window.switchRequested.connect(self._switch)
             window.launchRequested.connect(self._launch)
             window.reloginRequested.connect(self._show_relogin)
-            window.setupRequested.connect(lambda _key: self._show_setup())
+            window.setupRequested.connect(self._show_setup)
             window.refreshRequested.connect(self._refresh)
             window.settingsChanged.connect(self._on_settings_changed)
             window.clearHistoryRequested.connect(self._clear_history)
