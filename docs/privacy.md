@@ -105,8 +105,14 @@ including entries generated from deliberately poisoned error messages.
 
 | Feature | Default | What it writes |
 |---|---|---|
-| Launch at sign-in | Off | A `.lnk` in your Startup folder. **No registry keys.** Delete the shortcut to undo. |
+| Launch at sign-in | **On** | A `.lnk` in your Startup folder. **No registry keys.** Untick the setting, or delete the shortcut in Explorer, to undo. |
+| Start menu entry | On (once) | A `.lnk` in your Start menu, created on first run only. If you delete it, it is not recreated. |
 | Global shortcuts | Off | Nothing persistent; `RegisterHotKey` is in-process and released on exit. |
 | Threshold notifications | Off | Nothing; state is in memory. |
 
-Nothing in this list is written unless you turn the setting on.
+Start-at-sign-in and the Start menu entry are the two things written without an explicit click,
+so that the app behaves like any other installed program. Both are plain shortcuts in your own
+profile, visible in Explorer, and removable by hand. Everything else in this list stays untouched
+until you turn it on.
+
+An `app.ico` is also generated in the data folder, purely so those shortcuts have an icon.

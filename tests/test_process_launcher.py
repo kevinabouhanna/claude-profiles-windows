@@ -143,3 +143,34 @@ def test_spawn_failure_is_reported_safely():
     # The message names the failure type, not the underlying text.
     assert "OSError" in result.message
     assert "secret" not in result.message
+
+
+# --- window lifetime ------------------------------------------------------
+
+
+def test_interactive_session_keeps_its_window():
+    """A Claude Code session owns the terminal for as long as it runs."""
+    launcher = ProcessLauncher(terminal=None, shell=r"C:\powershell.exe", discover=False)
+    argv, _ = launcher.build_argv([r"C:\cswap.exe", "run", "2"], "Claude")
+    assert "-NoExit" in argv
+
+
+def test_one_shot_command_closes_its_window_on_success():
+    """A sign-in terminal that lingers after finishing is just litter."""
+    launcher = ProcessLauncher(terminal=None, shell=r"C:\powershell.exe", discover=False)
+    argv, _ = launcher.build_argv(
+        [r"C:\claude.exe", "auth", "login"], "Sign in", keep_open=False
+    )
+    assert "-NoExit" not in argv
+
+
+def test_one_shot_command_still_pauses_on_failure():
+    command = build_powershell_command([r"C:\claude.exe", "auth", "login"], keep_open=False)
+    assert "$LASTEXITCODE" in command
+    assert "Read-Host" in command
+
+
+def test_keep_open_command_has_no_pause_clause():
+    command = build_powershell_command([r"C:\cswap.exe", "run", "1"], keep_open=True)
+    assert "Read-Host" not in command
+    assert command == r"& 'C:\cswap.exe' 'run' '1'"

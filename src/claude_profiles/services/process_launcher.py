@@ -62,13 +62,25 @@ def _quote_for_powershell(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def build_powershell_command(argv: list[str]) -> str:
-    """``& 'C:\\path\\cswap.exe' run 2`` - the call operator handles spaces."""
+def build_powershell_command(argv: list[str], *, keep_open: bool = True) -> str:
+    """``& 'C:\\path\\cswap.exe' run 2`` - the call operator handles spaces.
+
+    With ``keep_open`` False the window closes once the command succeeds but
+    stays put on failure, so an error is still readable. That suits a one-shot
+    task such as signing in; an interactive Claude Code session wants its
+    window to remain regardless.
+    """
     if not argv:
         raise ValueError("empty command")
     executable, *args = argv
     parts = [_quote_for_powershell(executable), *(_quote_for_powershell(a) for a in args)]
-    return "& " + " ".join(parts)
+    command = "& " + " ".join(parts)
+    if keep_open:
+        return command
+    return (
+        f"{command}; if ($LASTEXITCODE -ne 0) "
+        "{ Write-Host ''; Read-Host 'Command failed - press Enter to close' }"
+    )
 
 
 class ProcessLauncher:
@@ -92,22 +104,28 @@ class ProcessLauncher:
     def has_terminal(self) -> bool:
         return self._shell is not None
 
-    def build_argv(self, command: list[str], title: str) -> tuple[list[str], bool]:
+    def build_argv(
+        self, command: list[str], title: str, *, keep_open: bool = True
+    ) -> tuple[list[str], bool]:
         """Return ``(argv, used_windows_terminal)`` for the launch."""
         if self._shell is None:
             raise RuntimeError("No PowerShell executable was found.")
-        # -NoExit keeps the window open so a failure stays readable instead of
-        # vanishing the instant the process exits.
-        inner = [self._shell, "-NoExit", "-Command", build_powershell_command(command)]
+        inner = [self._shell]
+        if keep_open:
+            # An interactive session owns the window for as long as it runs.
+            inner.append("-NoExit")
+        inner += ["-Command", build_powershell_command(command, keep_open=keep_open)]
         if self._terminal:
             safe_title = title.replace('"', "").replace("\\", "")[:60]
             return ([self._terminal, "new-tab", "--title", safe_title, "--", *inner], True)
         return (inner, False)
 
-    def launch(self, command: list[str], title: str) -> LaunchResult:
+    def launch(
+        self, command: list[str], title: str, *, keep_open: bool = True
+    ) -> LaunchResult:
         """Open a new terminal window running ``command``."""
         try:
-            argv, used_wt = self.build_argv(command, title)
+            argv, used_wt = self.build_argv(command, title, keep_open=keep_open)
         except RuntimeError as exc:
             return LaunchResult(False, str(exc))
 

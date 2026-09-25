@@ -117,18 +117,25 @@ Scenarios: `healthy`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usa
 
 ## Settings
 
-All default to **off** except the refresh interval. Nothing is written to your system until you
-switch something on.
-
 | Setting | Default | Notes |
 |---|---|---|
 | Refresh interval | 120 s | Polls never overlap and back off automatically after errors. |
-| Launch at Windows sign-in | Off | Creates a shortcut in your Startup folder. **No registry keys are ever written.** |
+| Launch at Windows sign-in | **On** | Creates a shortcut in your Startup folder. **No registry keys are ever written.** Untick it and the shortcut is deleted. |
 | Threshold notifications | Off | Fires on an upward crossing only, and re-arms after a reset. |
 | Global shortcuts | Off | `Ctrl+Alt+1` Personal, `Ctrl+Alt+2` Work. Registered only when enabled. |
 
 Switch confirmations always appear, regardless of the notification setting, because they are the
 direct result of something you clicked.
+
+### Behaving like an installed app
+
+On first run the app adds itself to the **Start menu** and to **Startup**, both as ordinary
+shortcuts you can see and delete in Explorer. They point at `pythonw.exe`, the windowed Python
+interpreter, so launching Claude Profiles never opens a console window.
+
+Notification-area apps are hidden by default on Windows 11. To pin the icon so it is always
+visible: **Settings > Personalisation > Taskbar > Other system tray icons**, then switch on
+*Claude Profiles*.
 
 ## When an account needs re-authentication
 

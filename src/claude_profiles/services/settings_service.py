@@ -42,7 +42,9 @@ class Settings:
     """User preferences. Contains no secrets and no email addresses."""
 
     refresh_interval_seconds: int = 120
-    launch_at_signin: bool = False
+    # On by default: a tray app the user installed to watch their quota is
+    # not useful if it has to be started by hand every morning.
+    launch_at_signin: bool = True
     notifications_enabled: bool = False
     warn_threshold_pct: int = 80
     critical_threshold_pct: int = 95

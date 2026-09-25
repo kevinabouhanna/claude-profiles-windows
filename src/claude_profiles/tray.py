@@ -200,7 +200,30 @@ class TrayController(QObject):
                 "claude-swap was not found. Install it with: uv tool install claude-swap",
                 level="error",
             )
+        self._sync_windows_integration()
         self.polling.start()
+
+    def _sync_windows_integration(self) -> None:
+        """Make Windows match the saved preferences.
+
+        Two things need reconciling at startup rather than only on a toggle:
+        a default-on "start at sign-in" has to create its shortcut the first
+        time the app runs, and a shortcut the user deleted by hand must be
+        reflected back into the setting instead of being reported as enabled.
+        """
+        result = autostart.reconcile(self._settings.launch_at_signin)
+        if result is not None:
+            ok, message = result
+            self.profiles.log(message, level="info" if ok else "error")
+            if not ok:
+                self._settings = self._settings_service.update(
+                    launch_at_signin=autostart.is_enabled()
+                )
+
+        entry = autostart.ensure_start_menu_entry()
+        if entry is not None:
+            ok, message = entry
+            self.profiles.log(message, level="info" if ok else "error")
 
     # -- tray interaction ---------------------------------------------------
 
@@ -364,8 +387,12 @@ class TrayController(QObject):
             )
             return
 
+        # keep_open=False: the window closes itself once sign-in succeeds,
+        # and only sticks around if the command failed.
         result = self.launcher.launch(
-            [claude, "auth", "login"], f"Sign in — {dialog.profile.name}"
+            [claude, "auth", "login"],
+            f"Sign in — {dialog.profile.name}",
+            keep_open=False,
         )
         if result.ok:
             self.profiles.log("Opened a terminal to sign in to Claude Code")
@@ -423,7 +450,7 @@ class TrayController(QObject):
             return
 
         result = self.launcher.launch(
-            [claude, "auth", "login"], "Sign in to Claude Code"
+            [claude, "auth", "login"], "Sign in to Claude Code", keep_open=False
         )
         if result.ok:
             message = (
