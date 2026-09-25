@@ -9,16 +9,29 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ..models import ProfileState
-from .status_badge import StatusBadge, format_age, health_badge_text
-from .theme import faint, hairline, muted_label_css
+from ..resources import fluent_icons
+from . import theme
+from .status_badge import ProfileAvatar, StatusBadge, format_age, health_badge_text
 from .usage_bar import UsageBar
 
-MAX_SCOPED_ROWS = 3
+MAX_SCOPED_ROWS = 2
+
+# Profile key -> Fluent glyph, so Personal and Work are distinguishable at a
+# glance without relying on colour alone.
+PROFILE_GLYPHS = {"personal": "personal", "work": "work"}
+
+
+class Divider(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFixedHeight(1)
+        self.setStyleSheet(f"background-color: {theme.tokens().divider}; border: none;")
 
 
 class ProfileCard(QFrame):
@@ -43,149 +56,218 @@ class ProfileCard(QFrame):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self._apply_card_style(active=False)
 
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
 
-        self._accent_bar = QWidget(self)
-        self._accent_bar.setFixedWidth(4)
-        self._accent_bar.setStyleSheet(
-            f"background-color: {self._accent}; border-top-left-radius: 10px;"
-            "border-bottom-left-radius: 10px;"
-        )
-        outer.addWidget(self._accent_bar)
+        root.addLayout(self._build_header(state))
+        root.addWidget(Divider())
 
-        body = QVBoxLayout()
-        body.setContentsMargins(14, 12, 14, 12)
-        body.setSpacing(7 if compact else 9)
-        outer.addLayout(body, 1)
+        # Registered and unregistered profiles show entirely different content,
+        # so they are separate pages rather than one layout with hidden rows.
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_usage_page())
+        self._stack.addWidget(self._build_empty_page(state))
+        root.addWidget(self._stack)
 
-        # -- header
+        root.addStretch(1)
+        root.addLayout(self._build_footer())
+        root.addLayout(self._build_actions(state))
+
+        self.set_state(state)
+
+    # -- construction -------------------------------------------------------
+
+    def _build_header(self, state: ProfileState) -> QHBoxLayout:
         header = QHBoxLayout()
-        header.setSpacing(8)
-        self._name_label = QLabel(state.profile.name)
-        name_size = 13 if compact else 15
-        self._name_label.setStyleSheet(f"font-size: {name_size}px; font-weight: 700;")
-        header.addWidget(self._name_label)
+        header.setSpacing(10)
 
-        self._active_badge = StatusBadge("ACTIVE", "ok")
+        self._avatar = ProfileAvatar(
+            self._accent,
+            PROFILE_GLYPHS.get(state.profile.key, "personal"),
+            size=34 if not self._compact else 30,
+        )
+        header.addWidget(self._avatar, 0, Qt.AlignmentFlag.AlignTop)
+
+        identity = QVBoxLayout()
+        identity.setSpacing(1)
+
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
+        self._name_label = QLabel(state.profile.name)
+        self._name_label.setStyleSheet(
+            theme.text_css(theme.BODY if self._compact else theme.BODY_LARGE, "primary", 600)
+        )
+        name_row.addWidget(self._name_label)
+        self._active_badge = StatusBadge("Active", "accent")
         self._active_badge.setVisible(False)
-        header.addStretch(1)
-        header.addWidget(self._active_badge)
-        body.addLayout(header)
+        name_row.addWidget(self._active_badge)
+        name_row.addStretch(1)
+        identity.addLayout(name_row)
 
         self._email_label = QLabel("")
+        self._email_label.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
         self._email_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        self._email_label.setStyleSheet(muted_label_css(self))
-        body.addWidget(self._email_label)
+        identity.addWidget(self._email_label)
 
-        # -- quota windows
-        self._five_bar = UsageBar("5h", self._accent, compact=compact)
-        self._seven_bar = UsageBar("7d", self._accent, compact=compact)
-        body.addWidget(self._five_bar)
-        body.addWidget(self._seven_bar)
+        header.addLayout(identity, 1)
+        return header
+
+    def _build_usage_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._five_bar = UsageBar("5h", self._accent, compact=self._compact)
+        self._seven_bar = UsageBar("7d", self._accent, compact=self._compact)
+        layout.addWidget(self._five_bar)
+        layout.addWidget(self._seven_bar)
 
         self._scoped_container = QVBoxLayout()
         self._scoped_container.setSpacing(2)
-        body.addLayout(self._scoped_container)
+        layout.addLayout(self._scoped_container)
 
         self._spend_label = QLabel("")
-        self._spend_label.setStyleSheet(muted_label_css(self))
+        self._spend_label.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
         self._spend_label.setVisible(False)
-        body.addWidget(self._spend_label)
+        layout.addWidget(self._spend_label)
 
         self._pace_label = QLabel("")
         self._pace_label.setWordWrap(True)
-        self._pace_label.setStyleSheet(muted_label_css(self))
+        self._pace_label.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
         self._pace_label.setVisible(False)
-        body.addWidget(self._pace_label)
+        layout.addWidget(self._pace_label)
+        return page
 
-        # -- health
-        status_row = QHBoxLayout()
-        status_row.setSpacing(8)
+    def _build_empty_page(self, state: ProfileState) -> QWidget:
+        """Shown before a profile is registered.
+
+        Empty progress bars would imply a reading of zero, which is not what
+        "not set up" means, so the card explains the state instead.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 6, 0, 6)
+        layout.setSpacing(8)
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        icon = QLabel()
+        icon.setPixmap(
+            fluent_icons.pixmap("add_account", theme.tokens().text_tertiary, 20)
+        )
+        icon.setFixedWidth(22)
+        row.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+
+        message = QLabel(
+            f"{state.profile.name} isn't set up yet. Sign in to Claude Code as "
+            "this account and register it to see usage here."
+        )
+        message.setWordWrap(True)
+        message.setStyleSheet(theme.text_css(theme.CAPTION, "secondary"))
+        row.addWidget(message, 1)
+        layout.addLayout(row)
+        layout.addStretch(1)
+        return page
+
+    def _build_footer(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
         self._health_badge = StatusBadge("", "muted")
-        status_row.addWidget(self._health_badge)
+        row.addWidget(self._health_badge)
         self._freshness_label = QLabel("")
-        self._freshness_label.setStyleSheet(muted_label_css(self))
-        status_row.addWidget(self._freshness_label)
-        status_row.addStretch(1)
-        body.addLayout(status_row)
+        self._freshness_label.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
+        row.addWidget(self._freshness_label)
+        row.addStretch(1)
+        return row
 
-        self._relogin_button = QPushButton("Open re-login instructions")
+    def _build_actions(self, state: ProfileState) -> QVBoxLayout:
+        wrapper = QVBoxLayout()
+        wrapper.setSpacing(8)
+
+        self._relogin_button = QPushButton("  Fix sign-in")
+        self._relogin_button.setIcon(
+            fluent_icons.icon("shield", theme.tokens().critical, 16)
+        )
         self._relogin_button.setVisible(False)
         self._relogin_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._relogin_button.setStyleSheet(theme.standard_button_css())
         self._relogin_button.clicked.connect(lambda: self.reloginRequested.emit(self._key))
-        body.addWidget(self._relogin_button)
+        wrapper.addWidget(self._relogin_button)
 
-        # -- actions
         actions = QHBoxLayout()
         actions.setSpacing(8)
-        self._switch_button = QPushButton(f"Switch to {state.profile.name}")
+
+        self._switch_button = QPushButton()
         self._switch_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._switch_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self._switch_button.setStyleSheet(self._primary_button_style())
+        self._switch_button.setStyleSheet(theme.accent_button_css(self._accent))
         self._switch_button.clicked.connect(self._on_primary_clicked)
-        actions.addWidget(self._switch_button, 2)
+        actions.addWidget(self._switch_button, 1)
 
-        self._launch_button = QPushButton("Launch")
+        self._launch_button = QPushButton()
         self._launch_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._launch_button.setStyleSheet(theme.standard_button_css())
+        self._launch_button.setIcon(
+            fluent_icons.icon("terminal", theme.tokens().text, 16)
+        )
+        self._launch_button.setFixedWidth(40)
         self._launch_button.clicked.connect(lambda: self.launchRequested.emit(self._key))
-        actions.addWidget(self._launch_button, 1)
-        body.addLayout(actions)
+        actions.addWidget(self._launch_button, 0)
 
-        self.set_state(state)
+        wrapper.addLayout(actions)
+        return wrapper
 
     # -- styling ------------------------------------------------------------
 
     def _apply_card_style(self, *, active: bool) -> None:
-        border = self._accent if active else hairline(self)
-        self.setStyleSheet(
-            f"#profileCard {{ background-color: palette(base); border: 1px solid {border};"
-            "border-radius: 10px; }"
-        )
-
-    def _primary_button_style(self) -> str:
-        return (
-            f"QPushButton {{ background-color: {self._accent}; color: white; border: none;"
-            "border-radius: 6px; padding: 7px 12px; font-weight: 600; }"
-            f"QPushButton:disabled {{ background-color: {hairline(self)};"
-            f" color: {faint(self)}; }}"
-        )
+        t = theme.tokens()
+        border = t.on_surface(self._accent) if active else t.card_stroke
+        self.setStyleSheet(theme.card_css("profileCard", border=border))
 
     # -- state --------------------------------------------------------------
 
     def set_state(self, state: ProfileState) -> None:
         self._state = state
         account = state.account
+        t = theme.tokens()
 
-        self._email_label.setText(
-            account.email if account else "not registered with claude-swap"
-        )
+        self._email_label.setText(account.email if account else "Not registered")
         self._active_badge.setVisible(state.is_active)
         self._apply_card_style(active=state.is_active)
+        self._stack.setCurrentIndex(0 if account is not None else 1)
 
-        usage = account.effective_usage if account else None
-        stale = bool(account and account.is_stale)
-
-        self._five_bar.set_window(usage.five_hour if usage else None, stale=stale)
-        self._seven_bar.set_window(usage.seven_day if usage else None, stale=stale)
-        self._render_scoped(usage.scoped if usage else (), stale)
-        self._render_spend(usage)
-        self._render_pace(usage)
+        if account is not None:
+            usage = account.effective_usage
+            stale = account.is_stale
+            self._five_bar.set_window(usage.five_hour if usage else None, stale=stale)
+            self._seven_bar.set_window(usage.seven_day if usage else None, stale=stale)
+            self._render_scoped(usage.scoped if usage else (), stale)
+            self._render_spend(usage)
+            self._render_pace(usage)
 
         text, tone = health_badge_text(account)
         self._health_badge.apply(text, tone)
         self._relogin_button.setVisible(state.needs_reauth)
-
         self._freshness_label.setText(self._freshness_text(state))
+
         self._switch_button.setEnabled(self._primary_enabled(state))
         self._switch_button.setText(self._primary_text(state))
+        self._switch_button.setIcon(self._primary_icon(state))
         self._launch_button.setEnabled(bool(account and account.number is not None))
         self._launch_button.setToolTip(self._launch_tooltip(state))
+        self._launch_button.setIcon(
+            fluent_icons.icon(
+                "terminal",
+                t.text if self._launch_button.isEnabled() else t.text_disabled,
+                16,
+            )
+        )
 
     def _on_primary_clicked(self) -> None:
         # An unregistered profile has nothing to switch to, so the same button
@@ -197,8 +279,16 @@ class ProfileCard(QFrame):
 
     def _primary_text(self, state: ProfileState) -> str:
         if state.account is None:
-            return f"Set up {state.profile.name}…"
-        return "Active" if state.is_active else f"Switch to {state.profile.name}"
+            return f"  Set up {state.profile.name}"
+        return "  Active profile" if state.is_active else f"  Switch to {state.profile.name}"
+
+    def _primary_icon(self, state: ProfileState):
+        t = theme.tokens()
+        if state.account is None:
+            return fluent_icons.icon("add", t.text_on_accent, 16)
+        if state.is_active:
+            return fluent_icons.icon("success", t.text_disabled, 16)
+        return fluent_icons.icon("switch", t.text_on_accent, 16)
 
     def _primary_enabled(self, state: ProfileState) -> bool:
         if state.account is None:
@@ -208,28 +298,28 @@ class ProfileCard(QFrame):
     def _freshness_text(self, state: ProfileState) -> str:
         account = state.account
         if account is None:
-            return f"Add it with: cswap add --alias {state.profile.alias}"
+            return ""
         if account.effective_usage is None:
-            # No reading at all: the health badge already says why, so avoid
-            # an empty "updated unknown age".
-            return "no usage data yet"
-        if account.usage_error:
-            retry = ""
-            if account.usage_retry_at:
-                retry = f"; retrying at {account.usage_retry_at.astimezone():%H:%M}"
-            return f"updated {format_age(account.effective_age_seconds)}{retry}"
-        return f"updated {format_age(account.effective_age_seconds)}"
+            return ""
+        if account.usage_error and account.usage_retry_at:
+            return (
+                f"Updated {format_age(account.effective_age_seconds)} · "
+                f"retry {account.usage_retry_at.astimezone():%H:%M}"
+            )
+        return f"Updated {format_age(account.effective_age_seconds)}"
 
     def _launch_tooltip(self, state: ProfileState) -> str:
+        if state.account is None:
+            return "Set this profile up before launching a session for it."
         if state.is_active:
             return (
-                "Opens a new terminal running Claude Code.\n"
-                "This profile is already the active login, so the session uses it "
-                "directly rather than an isolated one."
+                "Open a terminal running Claude Code.\n"
+                "This profile is already the active login, so the session uses "
+                "it directly rather than an isolated one."
             )
         return (
-            "Opens an isolated terminal session for this account.\n"
-            "It does not change the globally active profile."
+            "Open an isolated terminal session for this account.\n"
+            "The globally active profile is unchanged."
         )
 
     def _render_scoped(self, scoped: tuple, stale: bool) -> None:
@@ -250,11 +340,9 @@ class ProfileCard(QFrame):
         if spend is None:
             self._spend_label.setVisible(False)
             return
-        text = f"Extra usage: {spend.currency} {spend.used:.2f}"
+        text = f"Extra usage {spend.currency} {spend.used:.2f}"
         if spend.limit:
             text += f" of {spend.limit:.2f}"
-        if spend.countdown:
-            text += f" · resets in {spend.countdown}"
         self._spend_label.setText(text)
         self._spend_label.setVisible(True)
 
@@ -265,14 +353,14 @@ class ProfileCard(QFrame):
         seven = usage.seven_day
         parts: list[str] = []
         if seven.expected_pct is not None and seven.ahead_of_pace is not None:
-            direction = "ahead of" if seven.ahead_of_pace else "within"
-            parts.append(f"{direction} pace (expected {seven.expected_pct:.0f}%)")
+            direction = "Ahead of" if seven.ahead_of_pace else "Within"
+            parts.append(f"{direction} pace, expected {seven.expected_pct:.0f}%")
         if seven.will_last_to_reset is False:
-            parts.append("projected to run out before reset")
+            parts.append("may run out before reset")
         if not parts:
             self._pace_label.setVisible(False)
             return
-        self._pace_label.setText("7-day: " + " · ".join(parts))
+        self._pace_label.setText(" · ".join(parts))
         self._pace_label.setVisible(True)
 
     def set_busy(self, busy: bool) -> None:
@@ -283,5 +371,5 @@ class ProfileCard(QFrame):
             not busy and bool(state.account and state.account.number is not None)
         )
         self._switch_button.setText(
-            "Working…" if busy else self._primary_text(state)
+            "  Working…" if busy else self._primary_text(state)
         )

@@ -15,6 +15,11 @@ it stores, what it never stores, and what it cannot do. The same summary appears
 The directory is created with `icacls <dir> /inheritance:r /grant:r <you>:(OI)(CI)F`, which removes
 inherited permissions and grants access to your user account only.
 
+A few small PNGs are also written to the standard Windows cache location
+(`%LOCALAPPDATA%\Claude Profiles\cache\icons`). These are checkbox ticks and spin-button arrows
+rendered from the system icon font, because Qt stylesheets can only reference indicator images by
+URL. They are generated UI assets containing no account data, and deleting them is harmless.
+
 Both **Open data folder** and **Clear local activity history** are available in the Privacy tab.
 
 ## What is stored

@@ -1,8 +1,8 @@
-"""Icons drawn at runtime with QPainter.
+"""The tray icon, drawn at runtime.
 
-Generating them avoids shipping binary assets and lets the tray icon take on the
-active profile's colour. A PyInstaller build can still render an ``.ico`` from
-:func:`save_app_icon`.
+Generating it avoids shipping binary assets and lets the icon take on the
+active profile's colour and glyph. The shape follows Windows tray convention:
+a simple, high-contrast mark that stays legible at 16px.
 """
 
 from __future__ import annotations
@@ -10,62 +10,54 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import (
-    QBrush,
-    QColor,
-    QFont,
-    QIcon,
-    QPainter,
-    QPainterPath,
-    QPen,
-    QPixmap,
-)
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPainterPath, QPixmap
 
-NEUTRAL = "#64748b"
+from . import fluent_icons
+
+NEUTRAL = "#8A8A8A"
 
 
-def _draw_badge(size: int, color: str, letter: str, *, ring: bool = False) -> QPixmap:
+def _draw_tile(size: int, color: str, icon_name: str | None) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-    inset = max(1, size // 16)
+    inset = max(1, round(size * 0.06))
     rect = QRect(inset, inset, size - 2 * inset, size - 2 * inset)
 
     path = QPainterPath()
-    path.addRoundedRect(rect, size * 0.28, size * 0.28)
+    radius = size * 0.24
+    path.addRoundedRect(rect, radius, radius)
     painter.fillPath(path, QBrush(QColor(color)))
 
-    if ring:
-        pen = QPen(QColor("#ffffff"))
-        pen.setWidth(max(1, size // 16))
-        painter.setPen(pen)
-        painter.drawPath(path)
-
-    font = QFont("Segoe UI", int(size * 0.5), QFont.Weight.DemiBold)
-    painter.setFont(font)
-    painter.setPen(QColor("#ffffff"))
-    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
+    if icon_name:
+        fluent_icons.draw_glyph(
+            painter, rect, icon_name, "#FFFFFF", size=int(size * 0.52)
+        )
     painter.end()
     return pixmap
 
 
 def profile_icon(color: str, name: str, size: int = 64) -> QIcon:
-    """A rounded square badge carrying the profile's initial."""
-    letter = (name[:1] or "?").upper()
+    """A rounded tile carrying the profile's Fluent glyph."""
+    icon_name = "work" if name.lower().startswith("w") else "personal"
     icon = QIcon()
-    for dimension in (16, 24, 32, 48, size):
-        icon.addPixmap(_draw_badge(dimension, color, letter))
+    for dimension in (16, 20, 24, 32, 48, size):
+        icon.addPixmap(_draw_tile(dimension, color, icon_name))
     return icon
 
 
-def tray_icon(color: str | None = None, letter: str = "C") -> QIcon:
+def tray_icon(color: str | None = None, name: str | None = None) -> QIcon:
     """Tray icon tinted with the active profile's colour."""
+    icon_name = (
+        ("work" if name.lower().startswith("w") else "personal") if name else "people"
+    )
     icon = QIcon()
     for dimension in (16, 20, 24, 32, 48, 64):
-        icon.addPixmap(_draw_badge(dimension, color or NEUTRAL, letter, ring=False))
+        icon.addPixmap(_draw_tile(dimension, color or NEUTRAL, icon_name))
     return icon
 
 
@@ -81,10 +73,10 @@ def dot_pixmap(color: str, size: int = 10) -> QPixmap:
     return pixmap
 
 
-def save_app_icon(path: Path, color: str = "#3b82f6", letter: str = "C") -> Path:
+def save_app_icon(path: Path, color: str = "#0078D4") -> Path:
     """Write a multi-resolution .ico for packaging."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    _draw_badge(256, color, letter).save(str(path), "ICO")
+    _draw_tile(256, color, "people").save(str(path), "ICO")
     return path
 
 

@@ -19,6 +19,7 @@ from .main_window import (
     MainWindow,
 )
 from .models import DEFAULT_PROFILES, AccountList, ActivityEntry, ProfileState
+from .resources import fluent_icons
 from .resources.icons import tray_icon
 from .services import autostart
 from .services.cswap_client import CswapBackend, CswapError
@@ -28,6 +29,7 @@ from .services.polling_service import PollingService
 from .services.process_launcher import ProcessLauncher, find_claude
 from .services.profile_service import ProfileService
 from .services.settings_service import Settings, SettingsService
+from .widgets import theme
 from .widgets.compact_popup import CompactPopup
 from .widgets.status_badge import format_age
 
@@ -109,9 +111,17 @@ class TrayController(QObject):
         menu.addAction(self._header_action)
         menu.addSeparator()
 
+        t = theme.tokens()
         self._switch_actions: dict[str, QAction] = {}
         for index, profile in enumerate(self.profiles.profiles, start=1):
             action = QAction(f"Switch to {profile.name}", menu)
+            action.setIcon(
+                fluent_icons.icon(
+                    "work" if profile.key == "work" else "personal",
+                    t.on_surface(profile.color),
+                    16,
+                )
+            )
             action.setShortcut(f"Ctrl+Alt+{index}")
             action.triggered.connect(lambda _=False, key=profile.key: self._switch(key))
             menu.addAction(action)
@@ -121,6 +131,7 @@ class TrayController(QObject):
         self._launch_actions: dict[str, QAction] = {}
         for profile in self.profiles.profiles:
             action = QAction(f"Launch Claude Code as {profile.name}", menu)
+            action.setIcon(fluent_icons.icon("terminal", t.text_secondary, 16))
             action.setToolTip(
                 "Opens an isolated terminal session; the active profile is unchanged."
             )
@@ -129,19 +140,23 @@ class TrayController(QObject):
             self._launch_actions[profile.key] = action
         menu.addSeparator()
 
-        menu.addAction(QAction("Refresh now", menu, triggered=self._refresh))
-        menu.addAction(QAction("Open full dashboard", menu, triggered=self._show_window))
+        def command(glyph: str, text: str, slot) -> QAction:
+            action = QAction(text, menu)
+            action.setIcon(fluent_icons.icon(glyph, t.text_secondary, 16))
+            action.triggered.connect(slot)
+            return action
+
+        menu.addAction(command("refresh", "Refresh now", self._refresh))
+        menu.addAction(command("open_window", "Open full dashboard", self._show_window))
+        menu.addAction(command("people", "Set up accounts…", self._show_setup))
         menu.addAction(
-            QAction("Set up accounts…", menu, triggered=self._show_setup)
+            command("settings", "Settings", lambda: self._show_window(tab=TAB_SETTINGS))
         )
         menu.addAction(
-            QAction("Settings", menu, triggered=lambda: self._show_window(tab=TAB_SETTINGS))
-        )
-        menu.addAction(
-            QAction("Privacy", menu, triggered=lambda: self._show_window(tab=TAB_PRIVACY))
+            command("lock", "Privacy", lambda: self._show_window(tab=TAB_PRIVACY))
         )
         menu.addSeparator()
-        menu.addAction(QAction("Quit", menu, triggered=self._quit))
+        menu.addAction(command("power", "Quit", self._quit))
 
         self._menu = menu
         self.tray.setContextMenu(menu)
@@ -563,7 +578,7 @@ class TrayController(QObject):
             self._header_action.setText("Claude Profiles")
             return
 
-        self.tray.setIcon(tray_icon(active.profile.color, active.profile.name[:1]))
+        self.tray.setIcon(tray_icon(active.profile.color, active.profile.name))
         parts = [f"{active.profile.name} active"]
         usage = active.account.effective_usage if active.account else None
         if usage and usage.five_hour:

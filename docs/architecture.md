@@ -160,6 +160,21 @@ floor chosen so organization UUIDs (36 chars) and ISO timestamps survive intact.
 `icacls /inheritance:r /grant:r <user>:(OI)(CI)F`. It holds `settings.json` (UI preferences and
 aliases) and `activity.jsonl` (capped at 500 entries, emails masked, secrets redacted).
 
+## Presentation
+
+`widgets/theme.py` holds Fluent Design tokens named after the WinUI resources they mirror
+(`TextFillColorSecondary`, `CardStrokeColorDefault`, and so on), and `resources/fluent_icons.py`
+draws every icon from **Segoe Fluent Icons** - the font Windows 11 uses for its own UI, falling back
+to Segoe MDL2 Assets on Windows 10. Type comes from Segoe UI Variable. The accent colour is read
+from the Qt palette, so the app follows whatever the user has set in Windows.
+
+One trap is worth recording. Qt stylesheets accept CSS `rgba()` strings, but `QColor` does **not** -
+it silently returns opaque black rather than failing. Tokens held as `rgba()` therefore looked
+correct on stylesheet-driven widgets and rendered black everywhere QPainter was used, which is how
+the progress tracks and status pills ended up as black boxes. Every token is now pre-composited to
+solid hex, which behaves identically in both, and `tests/test_theme.py` asserts that each one parses
+as a valid `QColor` and that none is an `rgba()` string.
+
 ## Deliberate non-goals
 
 - No direct Anthropic API calls in version one. All quota data comes from claude-swap.

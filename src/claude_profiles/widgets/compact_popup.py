@@ -1,9 +1,13 @@
-"""The frameless dashboard that opens on a left-click of the tray icon."""
+"""The frameless flyout that opens on a left-click of the tray icon.
+
+Modelled on a Windows 11 tray flyout: a rounded surface, a title row with
+subtle icon buttons, content cards, and a command row along the bottom.
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -14,8 +18,37 @@ from PySide6.QtWidgets import (
 )
 
 from ..models import ProfileState
+from ..resources import fluent_icons
+from . import theme
 from .profile_card import ProfileCard
-from .theme import hairline, muted_label_css
+
+POPUP_WIDTH = 440
+
+
+def icon_button(name: str, tooltip: str, size: int = 32) -> QPushButton:
+    """A Fluent subtle button carrying a system glyph and no text."""
+    t = theme.tokens()
+    button = QPushButton()
+    button.setIcon(fluent_icons.icon(name, t.text_secondary, 16))
+    button.setIconSize(fluent_icons.icon_size(16))
+    button.setFixedSize(size, size)
+    button.setToolTip(tooltip)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setStyleSheet(theme.subtle_button_css())
+    return button
+
+
+def text_button(name: str, text: str, *, accent: bool = False) -> QPushButton:
+    t = theme.tokens()
+    button = QPushButton(f"  {text}")
+    color = t.text_on_accent if accent else t.text_secondary
+    button.setIcon(fluent_icons.icon(name, color, 16))
+    button.setIconSize(fluent_icons.icon_size(16))
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setStyleSheet(
+        theme.accent_button_css() if accent else theme.standard_button_css()
+    )
+    return button
 
 
 class HintBanner(QFrame):
@@ -23,24 +56,28 @@ class HintBanner(QFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        t = theme.tokens()
         self.setObjectName("hintBanner")
         self.setStyleSheet(
-            "#hintBanner { background-color: rgba(59, 130, 246, 0.12);"
-            "border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 8px; }"
+            f"#hintBanner {{ background-color: {t.accent_tint(0.12)};"
+            f" border: 1px solid {t.accent_tint(0.30)};"
+            f" border-radius: {theme.RADIUS_CONTROL}px; }}"
         )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 6, 8)
         layout.setSpacing(8)
 
+        self._icon = QLabel()
+        self._icon.setPixmap(fluent_icons.pixmap("info", t.accent, 14))
+        self._icon.setFixedWidth(16)
+        layout.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignTop)
+
         self._label = QLabel("")
         self._label.setWordWrap(True)
-        self._label.setStyleSheet("font-size: 11px;")
+        self._label.setStyleSheet(theme.text_css(theme.CAPTION, "secondary"))
         layout.addWidget(self._label, 1)
 
-        close = QPushButton("✕")
-        close.setFlat(True)
-        close.setFixedSize(20, 20)
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close = icon_button("close", "Dismiss", size=22)
         close.clicked.connect(self.hide)
         layout.addWidget(close, 0, Qt.AlignmentFlag.AlignTop)
         self.hide()
@@ -65,47 +102,17 @@ class CompactPopup(QWidget):
     def __init__(self, states: tuple[ProfileState, ...], parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setObjectName("compactPopup")
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedWidth(430)
-        self.setStyleSheet(
-            "#compactPopup { background-color: palette(window); border: 1px solid "
-            + hairline(self)
-            + "; border-radius: 12px; }"
-        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedWidth(POPUP_WIDTH)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(16, 12, 16, 14)
         layout.setSpacing(10)
 
-        # -- header
-        header = QHBoxLayout()
-        header.setSpacing(6)
-        title = QLabel("Claude Profiles")
-        title.setStyleSheet("font-size: 13px; font-weight: 700;")
-        header.addWidget(title)
-        header.addStretch(1)
-
-        self._refresh_button = QPushButton("⟳")
-        self._refresh_button.setFlat(True)
-        self._refresh_button.setFixedSize(24, 24)
-        self._refresh_button.setToolTip("Refresh now")
-        self._refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._refresh_button.clicked.connect(self.refreshRequested.emit)
-        header.addWidget(self._refresh_button)
-
-        settings_button = QPushButton("⚙")
-        settings_button.setFlat(True)
-        settings_button.setFixedSize(24, 24)
-        settings_button.setToolTip("Settings")
-        settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_button.clicked.connect(self.settingsRequested.emit)
-        header.addWidget(settings_button)
-        layout.addLayout(header)
-
+        layout.addLayout(self._build_header())
         self.banner = HintBanner(self)
         layout.addWidget(self.banner)
 
-        # -- cards
         self._cards: dict[str, ProfileCard] = {}
         for state in states:
             card = ProfileCard(state, compact=True, parent=self)
@@ -116,30 +123,85 @@ class CompactPopup(QWidget):
             layout.addWidget(card)
             self._cards[state.profile.key] = card
 
-        # -- footer
-        self._status_label = QLabel("Starting…")
-        self._status_label.setStyleSheet(muted_label_css(self))
-        self._status_label.setWordWrap(True)
-        layout.addWidget(self._status_label)
+        layout.addLayout(self._build_status_row())
+        layout.addLayout(self._build_footer())
 
+    # -- construction -------------------------------------------------------
+
+    def _build_header(self) -> QHBoxLayout:
+        header = QHBoxLayout()
+        header.setSpacing(4)
+
+        title = QLabel("Claude Profiles")
+        title.setStyleSheet(theme.text_css(theme.BODY, "primary", 600))
+        header.addWidget(title)
+        header.addStretch(1)
+
+        self._refresh_button = icon_button("refresh", "Refresh now")
+        self._refresh_button.clicked.connect(self.refreshRequested.emit)
+        header.addWidget(self._refresh_button)
+
+        settings_button = icon_button("settings", "Settings")
+        settings_button.clicked.connect(self.settingsRequested.emit)
+        header.addWidget(settings_button)
+
+        close_button = icon_button("close", "Close")
+        close_button.clicked.connect(self.hide)
+        header.addWidget(close_button)
+        return header
+
+    def _build_status_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self._status_icon = QLabel()
+        self._status_icon.setFixedWidth(14)
+        row.addWidget(self._status_icon, 0, Qt.AlignmentFlag.AlignTop)
+        self._status_label = QLabel("Starting…")
+        self._status_label.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
+        self._status_label.setWordWrap(True)
+        row.addWidget(self._status_label, 1)
+        self._set_status_icon("info")
+        return row
+
+    def _build_footer(self) -> QHBoxLayout:
         footer = QHBoxLayout()
-        footer.setSpacing(6)
-        for text, signal, tooltip in (
-            ("Refresh now", self.refreshRequested, "Poll claude-swap immediately"),
-            ("Full dashboard", self.dashboardRequested, "Open the full window"),
-            ("Settings", self.settingsRequested, "Preferences and privacy"),
-        ):
-            button = QPushButton(text)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setToolTip(tooltip)
-            button.clicked.connect(signal.emit)
-            footer.addWidget(button)
+        footer.setSpacing(8)
+
+        dashboard = text_button("open_window", "Dashboard")
+        dashboard.clicked.connect(self.dashboardRequested.emit)
+        footer.addWidget(dashboard)
+
+        accounts = text_button("people", "Accounts")
+        accounts.clicked.connect(lambda: self.setupRequested.emit(""))
+        footer.addWidget(accounts)
+
         footer.addStretch(1)
-        quit_button = QPushButton("Quit")
-        quit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        quit_button = icon_button("power", "Quit Claude Profiles")
         quit_button.clicked.connect(self.quitRequested.emit)
         footer.addWidget(quit_button)
-        layout.addLayout(footer)
+        return footer
+
+    def _set_status_icon(self, name: str) -> None:
+        t = theme.tokens()
+        color = {"info": t.text_tertiary, "warning": t.caution, "error": t.critical}.get(
+            name, t.text_tertiary
+        )
+        self._status_icon.setPixmap(fluent_icons.pixmap(name, color, 13))
+
+    # -- painting -----------------------------------------------------------
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        # The translucent window attribute means the rounded surface and its
+        # border are drawn here rather than by the stylesheet.
+        t = theme.tokens()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), 8, 8)
+        painter.fillPath(path, QColor(t.background))
+        painter.strokePath(path, QColor(t.stroke))
+        painter.end()
 
     # -- updates ------------------------------------------------------------
 
@@ -154,8 +216,9 @@ class CompactPopup(QWidget):
             card.set_busy(busy)
         self._refresh_button.setEnabled(not busy)
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, level: str = "info") -> None:
         self._status_label.setText(text)
+        self._set_status_icon(level)
 
     def show_hint(self, text: str) -> None:
         self.banner.show_message(text)
@@ -164,7 +227,7 @@ class CompactPopup(QWidget):
     # -- placement ----------------------------------------------------------
 
     def show_near(self, anchor_point) -> None:
-        """Place the popup next to the tray icon, kept inside the screen."""
+        """Place the flyout next to the tray icon, kept inside the screen."""
         self.adjustSize()
         screen = QGuiApplication.screenAt(anchor_point) or QGuiApplication.primaryScreen()
         available = screen.availableGeometry()

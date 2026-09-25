@@ -61,6 +61,7 @@ backend.calls                   # recorded invocations
 | `test_profile_service.py` | Alias mapping, switch success/failure/timeout, busy lifecycle, activity-log safety. |
 | `test_polling_service.py` | 50-thread overlap test, backoff ladder, last-known-value retention. |
 | `test_process_launcher.py` | PowerShell quoting, Windows Terminal argv, console-flag handling. |
+| `test_theme.py` | Every Fluent token parses as a QColor, tone ordering, stylesheet integrity. |
 
 ### Testing conventions
 
@@ -91,6 +92,9 @@ degrade rather than crash.
 - Never log raw stdout or stderr. Route every diagnostic through `redaction.py`.
 - Never read or write `.credentials.json`, `.claude-swap-backup\`, or session files.
 - Keep every new setting **off** by default if it writes anything outside the app's data folder.
+- Colour tokens must be solid hex, never CSS `rgba()`. QSS accepts both; `QColor` accepts only
+  hex and silently yields black for the rest. Use `theme.tokens()` rather than literals.
+- Icons come from `resources/fluent_icons.py`, never from emoji or text glyphs.
 
 ## Packaging
 

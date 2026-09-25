@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QPushButton,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -21,7 +20,10 @@ from PySide6.QtWidgets import (
 )
 
 from .models import ActivityEntry, ProfileState
+from .resources import fluent_icons
 from .services.settings_service import Settings
+from .widgets import theme
+from .widgets.compact_popup import text_button
 from .widgets.profile_card import ProfileCard
 from .widgets.setup_page import SetupPage
 from .widgets.theme import muted, muted_label_css
@@ -89,11 +91,25 @@ class MainWindow(QMainWindow):
 
         self.setup_page = SetupPage(tuple(s.profile for s in states))
 
+        tab_color = theme.tokens().text_secondary
         tabs = QTabWidget()
-        tabs.addTab(self._build_dashboard(states, mock_mode), "Dashboard")
-        tabs.addTab(self.setup_page, "Accounts")
-        tabs.addTab(self._build_settings(settings), "Settings")
-        tabs.addTab(self._build_privacy(data_dir), "Privacy")
+        tabs.setIconSize(fluent_icons.icon_size(16))
+        tabs.addTab(
+            self._build_dashboard(states, mock_mode),
+            fluent_icons.icon("chart", tab_color, 16),
+            "Dashboard",
+        )
+        tabs.addTab(self.setup_page, fluent_icons.icon("people", tab_color, 16), "Accounts")
+        tabs.addTab(
+            self._build_settings(settings),
+            fluent_icons.icon("settings", tab_color, 16),
+            "Settings",
+        )
+        tabs.addTab(
+            self._build_privacy(data_dir),
+            fluent_icons.icon("lock", tab_color, 16),
+            "Privacy",
+        )
         self.setCentralWidget(tabs)
         self._tabs = tabs
 
@@ -140,8 +156,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.setSpacing(8)
-        self._refresh_button = QPushButton("Refresh now")
-        self._refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_button = text_button("refresh", "Refresh now")
         self._refresh_button.clicked.connect(self.refreshRequested.emit)
         controls.addWidget(self._refresh_button)
         self._status_label = QLabel("")
@@ -153,8 +168,7 @@ class MainWindow(QMainWindow):
         log_group = QGroupBox("Activity")
         log_layout = QVBoxLayout(log_group)
         self._activity_list = QListWidget()
-        self._activity_list.setAlternatingRowColors(True)
-        self._activity_list.setStyleSheet("font-size: 12px;")
+        self._activity_list.setAlternatingRowColors(False)
         log_layout.addWidget(self._activity_list)
 
         log_controls = QHBoxLayout()
@@ -165,7 +179,7 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setStyleSheet(muted_label_css(self))
         log_controls.addWidget(note, 1)
-        clear_button = QPushButton("Clear history")
+        clear_button = text_button("delete", "Clear history")
         clear_button.clicked.connect(self.clearHistoryRequested.emit)
         log_controls.addWidget(clear_button)
         log_layout.addLayout(log_controls)
@@ -187,6 +201,7 @@ class MainWindow(QMainWindow):
         self._interval_spin.setRange(30, 3600)
         self._interval_spin.setSingleStep(30)
         self._interval_spin.setSuffix(" seconds")
+        self._interval_spin.setFixedWidth(170)
         self._interval_spin.setValue(settings.refresh_interval_seconds)
         self._interval_spin.valueChanged.connect(self._emit_settings)
         polling_form.addRow("Refresh interval", self._interval_spin)
@@ -231,6 +246,7 @@ class MainWindow(QMainWindow):
         self._warn_spin = QSpinBox()
         self._warn_spin.setRange(1, 99)
         self._warn_spin.setSuffix(" %")
+        self._warn_spin.setFixedWidth(110)
         self._warn_spin.setValue(settings.warn_threshold_pct)
         self._warn_spin.valueChanged.connect(self._emit_settings)
         notify_form.addRow("Warning threshold", self._warn_spin)
@@ -238,6 +254,7 @@ class MainWindow(QMainWindow):
         self._critical_spin = QSpinBox()
         self._critical_spin.setRange(2, 100)
         self._critical_spin.setSuffix(" %")
+        self._critical_spin.setFixedWidth(110)
         self._critical_spin.setValue(settings.critical_threshold_pct)
         self._critical_spin.valueChanged.connect(self._emit_settings)
         notify_form.addRow("Critical threshold", self._critical_spin)
@@ -316,10 +333,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(location)
 
         buttons = QHBoxLayout()
-        open_button = QPushButton("Open data folder")
+        open_button = text_button("folder", "Open data folder")
         open_button.clicked.connect(self.openDataFolderRequested.emit)
         buttons.addWidget(open_button)
-        clear_button = QPushButton("Clear local activity history")
+        clear_button = text_button("delete", "Clear local activity history")
         clear_button.clicked.connect(self.clearHistoryRequested.emit)
         buttons.addWidget(clear_button)
         buttons.addStretch(1)

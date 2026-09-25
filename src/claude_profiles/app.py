@@ -13,6 +13,7 @@ from .services.cswap_client import CswapBackend, CswapClient, find_cswap
 from .services.mock_cswap import SCENARIOS, MockCswapClient
 from .services.settings_service import SettingsService
 from .tray import TrayController
+from .widgets import theme
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -61,6 +62,12 @@ def main(argv: list[str] | None = None) -> int:
     app.setWindowIcon(tray_icon())
     # Closing a window returns to the tray; only Quit exits.
     app.setQuitOnLastWindowClosed(False)
+
+    # Read the system theme and accent colour, then dress every standard
+    # control as Fluent before any window is built.
+    theme.refresh_tokens()
+    theme.apply_app_font(app)
+    app.setStyleSheet(theme.stylesheet())
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
         QMessageBox.critical(
