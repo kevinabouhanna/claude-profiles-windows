@@ -119,13 +119,24 @@ Scenarios: `healthy`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usa
 
 | Setting | Default | Notes |
 |---|---|---|
-| Refresh interval | 120 s | Polls never overlap and back off automatically after errors. |
+| Refresh interval | 120 s | Used while the app is in the tray. Polls never overlap and back off automatically after errors. |
 | Launch at Windows sign-in | **On** | Creates a shortcut in your Startup folder. **No registry keys are ever written.** Untick it and the shortcut is deleted. |
 | Threshold notifications | Off | Fires on an upward crossing only, and re-arms after a reset. |
 | Global shortcuts | Off | `Ctrl+Alt+1` Personal, `Ctrl+Alt+2` Work. Registered only when enabled. |
 
 Switch confirmations always appear, regardless of the notification setting, because they are the
 direct result of something you clicked.
+
+### When usage refreshes
+
+You should rarely need the Refresh button:
+
+- **Opening the flyout or the dashboard refreshes it.** Clicking the tray icon means "show me the
+  numbers now", so it triggers a poll unless a reading arrived in the last 10 seconds.
+- **Polling speeds up while you are looking.** With a window on screen the interval drops to 30
+  seconds, then returns to your configured interval once everything is hidden. A configured
+  interval shorter than 30 s is never slowed down.
+- **After a switch**, state is re-read immediately.
 
 ### Behaving like an installed app
 

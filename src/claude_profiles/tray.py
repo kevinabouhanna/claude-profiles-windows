@@ -25,7 +25,7 @@ from .services import autostart
 from .services.cswap_client import CswapBackend, CswapError
 from .services.hotkeys import HotkeyManager
 from .services.notification_service import NotificationService
-from .services.polling_service import PollingService
+from .services.polling_service import PollingService, effective_interval
 from .services.process_launcher import ProcessLauncher, find_claude
 from .services.profile_service import ProfileService
 from .services.settings_service import Settings, SettingsService
@@ -95,9 +95,7 @@ class TrayController(QObject):
             critical_pct=self._settings.critical_threshold_pct,
         )
 
-        self.polling = PollingService(
-            backend, lambda: float(self._settings.refresh_interval_seconds), parent=self
-        )
+        self.polling = PollingService(backend, self._current_interval, parent=self)
         self.hotkeys = HotkeyManager(self._on_hotkey, parent=self)
 
         self.popup = CompactPopup(self.profiles.states)
@@ -193,6 +191,7 @@ class TrayController(QObject):
         self.popup.dashboardRequested.connect(self._show_window)
         self.popup.settingsRequested.connect(lambda: self._show_window(tab=TAB_SETTINGS))
         self.popup.quitRequested.connect(self._quit)
+        self.popup.visibilityChanged.connect(self._on_ui_visibility_changed)
 
     def start(self) -> None:
         if not self._backend.is_available:
@@ -202,6 +201,22 @@ class TrayController(QObject):
             )
         self._sync_windows_integration()
         self.polling.start()
+
+    def _current_interval(self) -> float:
+        """Poll faster while a window is on screen than while hidden."""
+        return effective_interval(
+            self._settings.refresh_interval_seconds, self._ui_visible()
+        )
+
+    def _ui_visible(self) -> bool:
+        if self.popup.isVisible():
+            return True
+        return self._window is not None and self._window.isVisible()
+
+    @Slot(bool)
+    def _on_ui_visibility_changed(self, visible: bool) -> None:
+        # Take the new cadence immediately rather than after the pending wait.
+        self.polling.reschedule()
 
     def _sync_windows_integration(self) -> None:
         """Make Windows match the saved preferences.
@@ -240,6 +255,9 @@ class TrayController(QObject):
             else:
                 self.popup.update_states(self.profiles.states)
                 self.popup.show_near(self.tray.geometry().center())
+                # Clicking the tray icon means "show me the numbers now", so
+                # treat it as a refresh unless a reading just arrived.
+                self.polling.poll_if_stale()
 
     def _on_hotkey(self, key: str) -> None:
         self._switch(key)
@@ -315,6 +333,7 @@ class TrayController(QObject):
         window.update_states(self.profiles.states)
         window.set_activity(self.profiles.recent_activity())
         self._present(window)
+        self.polling.poll_if_stale()
 
     def _present(self, window) -> None:
         """Bring a window to the foreground from inside a popup or tray menu.
@@ -539,6 +558,7 @@ class TrayController(QObject):
             window.setup_page.registerRequested.connect(self._register_profile)
             window.setup_page.assignAliasRequested.connect(self._assign_alias)
             window.setup_page.refreshRequested.connect(self._refresh_setup)
+            window.visibilityChanged.connect(self._on_ui_visibility_changed)
             self._window = window
         return self._window
 

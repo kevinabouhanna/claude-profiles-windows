@@ -98,6 +98,7 @@ class CompactPopup(QWidget):
     dashboardRequested = Signal()
     settingsRequested = Signal()
     quitRequested = Signal()
+    visibilityChanged = Signal(bool)
 
     def __init__(self, states: tuple[ProfileState, ...], parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
@@ -243,6 +244,14 @@ class CompactPopup(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
 
     def event(self, event: QEvent) -> bool:
         # A Popup closes on outside clicks; hide rather than destroy so state

@@ -14,12 +14,30 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from ..models import AccountList
 from .cswap_client import CswapBackend, CswapError, CswapErrorKind
 
 MAX_BACKOFF_SECONDS = 900.0
+
+# While a window is on screen the numbers are being read, so they are refreshed
+# more often. Hidden, the app falls back to the user's configured interval.
+FOREGROUND_INTERVAL_SECONDS = 30.0
+
+# How stale a reading may be before opening a window triggers a refresh.
+ON_DEMAND_MAX_AGE_SECONDS = 10.0
+
+
+def effective_interval(configured: float, ui_visible: bool) -> float:
+    """The polling interval to use right now.
+
+    Never slower than the user asked for, and never faster than they asked for
+    either when nothing is being displayed.
+    """
+    if ui_visible:
+        return min(float(configured), FOREGROUND_INTERVAL_SECONDS)
+    return float(configured)
 
 
 @dataclass(frozen=True)
@@ -126,6 +144,13 @@ class PollingService(QObject):
     pollFailed = Signal(object)  # CswapError
     pollFinished = Signal()
 
+    # Carries the worker thread's result back to the GUI thread. Qt queues a
+    # signal across threads; QTimer.singleShot does not - called off the GUI
+    # thread it creates its timer *in that thread*, which has no event loop, so
+    # the callback never runs. Rescheduling through singleShot is why automatic
+    # polling used to stop dead after the very first poll.
+    _resultReady = Signal(object)  # PollResult | None
+
     def __init__(
         self,
         backend: CswapBackend,
@@ -139,7 +164,12 @@ class PollingService(QObject):
         # could stack ticks behind a slow poll; this cannot.
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.poll_now)
+        self._resultReady.connect(self._on_result)
         self._running = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
 
     def start(self) -> None:
         if self._running:
@@ -166,16 +196,30 @@ class PollingService(QObject):
         thread.start()
         return True
 
+    def poll_if_stale(self, max_age: float = ON_DEMAND_MAX_AGE_SECONDS) -> bool:
+        """Poll unless the last reading is newer than ``max_age``.
+
+        Used when a window opens: the numbers should be current the moment the
+        user looks at them, but re-running cswap because they reopened the
+        flyout two seconds later is pure noise.
+        """
+        age = self.coordinator.seconds_since_success()
+        if age is not None and age < max_age:
+            return False
+        return self.poll_now()
+
     def _work(self) -> None:
-        result = self.coordinator.run_once()
+        self._resultReady.emit(self.coordinator.run_once())
+
+    @Slot(object)
+    def _on_result(self, result: PollResult | None) -> None:
+        # Runs on the GUI thread, so the timer below is safe to touch.
         if result is None:
-            # Lost the race against another poll; the winner emits.
+            # Lost the race against another poll; the winner reports.
             return
         if result.accounts is not None:
             self.pollSucceeded.emit(result.accounts)
         elif result.error is not None:
             self.pollFailed.emit(result.error)
         self.pollFinished.emit()
-        if self._running:
-            # Timers must be touched from the thread that owns them.
-            QTimer.singleShot(0, self.reschedule)
+        self.reschedule()

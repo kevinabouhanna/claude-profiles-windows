@@ -132,7 +132,10 @@ class SettingsService:
             return self._settings
         settings = Settings()
         try:
-            raw = self.settings_path.read_text(encoding="utf-8")
+            # utf-8-sig tolerates a byte-order mark. Notepad and PowerShell's
+            # Set-Content both write one, and a BOM makes json.loads fail, which
+            # would silently discard every preference the user had set.
+            raw = self.settings_path.read_text(encoding="utf-8-sig")
             data = json.loads(raw)
             if isinstance(data, dict):
                 known = {f for f in Settings().__dataclass_fields__}

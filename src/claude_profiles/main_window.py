@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
     settingsChanged = Signal(object)  # Settings
     clearHistoryRequested = Signal()
     openDataFolderRequested = Signal()
+    visibilityChanged = Signal(bool)
 
     def __init__(
         self,
@@ -387,6 +388,14 @@ class MainWindow(QMainWindow):
             self._activity_list.addItem(item)
         while self._activity_list.count() > 400:
             self._activity_list.takeItem(self._activity_list.count() - 1)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         # Closing the window returns the app to the tray rather than quitting.

@@ -125,7 +125,15 @@ the whole parsing and allowlist surface is unit-testable without an event loop.
   reset by one success. A missing executable does *not* escalate backoff, because retrying faster
   cannot conjure an installation.
 - **Single-shot rescheduling.** The Qt timer is restarted after each completion rather than repeating,
-  so a slow poll cannot stack ticks behind itself.
+  so a slow poll cannot stack ticks behind itself. The restart happens on the GUI thread, reached
+  from the worker via a Qt signal — `QTimer.singleShot` cannot be used, because off the GUI thread
+  it creates its timer in a thread with no event loop and the callback never fires. That mistake
+  left automatic polling dead after the first poll while every unit test passed, since the tests
+  covered only `PollingCoordinator`, which is plain Python. `tests/test_polling_service.py` now
+  drives the real `PollingService` and asserts repeated polls.
+- **Adaptive cadence.** `effective_interval` drops the gap to 30 s while a window is visible and
+  restores the configured interval when everything is hidden; opening a window also calls
+  `poll_if_stale`, which refreshes unless a reading arrived in the last 10 s.
 
 Switches run on a worker thread; results reach the UI through queued Qt signals. The busy flag is
 set and cleared in a `try`/`finally`, so the switch controls re-enable after success, failure,

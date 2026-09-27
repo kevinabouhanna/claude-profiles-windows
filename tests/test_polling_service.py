@@ -190,3 +190,128 @@ def test_seconds_since_success_tracks_a_clock():
     coordinator.run_once()
     now["t"] = 1075.0
     assert coordinator.seconds_since_success() == pytest.approx(75.0)
+
+
+# --- the Qt loop ----------------------------------------------------------
+#
+# Everything above exercises PollingCoordinator, which is plain Python. That
+# left the Qt half untested, and automatic polling was silently dead: the
+# worker thread rescheduled with QTimer.singleShot, which off the GUI thread
+# creates its timer in a thread with no event loop, so it never fired. One poll
+# at startup and nothing afterwards. These tests drive the real service.
+
+
+class CountingBackend:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def list_accounts(self) -> AccountList:
+        self.calls += 1
+        return AccountList.parse(fx.VALID_LIST)
+
+
+@pytest.fixture
+def service(qtbot):
+    from claude_profiles.services.polling_service import PollingService
+
+    def _make(interval: float = 5.0):
+        backend = CountingBackend()
+        svc = PollingService(backend, lambda: interval)
+        return svc, backend
+
+    return _make
+
+
+def test_polling_keeps_going_after_the_first_poll(service, qtbot):
+    """The regression that made users press Refresh by hand."""
+    svc, backend = service(interval=5.0)  # 5s is the floor in next_delay
+    svc.start()
+
+    qtbot.waitUntil(lambda: backend.calls >= 3, timeout=20000)
+    assert backend.calls >= 3
+    svc.stop()
+
+
+def test_results_reach_the_gui_thread(service, qtbot):
+    svc, _ = service()
+    received: list[object] = []
+    svc.pollSucceeded.connect(received.append)
+
+    svc.start()
+    qtbot.waitUntil(lambda: bool(received), timeout=10000)
+
+    assert isinstance(received[0], AccountList)
+    svc.stop()
+
+
+def test_a_timer_is_armed_after_each_poll(service, qtbot):
+    svc, backend = service()
+    svc.start()
+    qtbot.waitUntil(lambda: backend.calls >= 1, timeout=10000)
+    qtbot.waitUntil(lambda: svc._timer.isActive(), timeout=5000)
+    assert svc._timer.isActive()
+    svc.stop()
+
+
+def test_stop_halts_the_loop(service, qtbot):
+    svc, backend = service()
+    svc.start()
+    qtbot.waitUntil(lambda: backend.calls >= 1, timeout=10000)
+    svc.stop()
+    assert svc._timer.isActive() is False
+    assert svc.is_running is False
+
+
+# --- refresh on demand ----------------------------------------------------
+
+
+def test_poll_if_stale_polls_when_there_is_no_reading(service, qtbot):
+    svc, backend = service()
+    assert svc.poll_if_stale() is True
+    qtbot.waitUntil(lambda: backend.calls == 1, timeout=10000)
+
+
+def test_poll_if_stale_skips_a_fresh_reading(service, qtbot):
+    """Reopening the flyout seconds later should not re-run cswap."""
+    svc, backend = service()
+    svc.poll_now()
+    qtbot.waitUntil(lambda: backend.calls == 1, timeout=10000)
+
+    assert svc.poll_if_stale(max_age=60) is False
+    assert backend.calls == 1
+
+
+def test_poll_if_stale_polls_once_the_reading_ages(service, qtbot):
+    svc, backend = service()
+    svc.poll_now()
+    qtbot.waitUntil(lambda: backend.calls == 1, timeout=10000)
+
+    assert svc.poll_if_stale(max_age=0) is True
+    qtbot.waitUntil(lambda: backend.calls == 2, timeout=10000)
+
+
+# --- adaptive cadence -----------------------------------------------------
+
+
+def test_visible_ui_polls_faster():
+    from claude_profiles.services.polling_service import (
+        FOREGROUND_INTERVAL_SECONDS,
+        effective_interval,
+    )
+
+    assert effective_interval(120, True) == FOREGROUND_INTERVAL_SECONDS
+    assert effective_interval(120, False) == 120
+
+
+def test_a_short_configured_interval_is_never_slowed_down():
+    from claude_profiles.services.polling_service import effective_interval
+
+    assert effective_interval(15, True) == 15
+    assert effective_interval(15, False) == 15
+
+
+def test_hidden_ui_uses_the_configured_interval():
+    from claude_profiles.services.polling_service import effective_interval
+
+    for configured in (30, 60, 120, 600, 3600):
+        assert effective_interval(configured, False) == configured

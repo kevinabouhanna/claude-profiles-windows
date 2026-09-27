@@ -246,3 +246,36 @@ def test_launch_target_rejects_a_console_trampoline(tmp_path, monkeypatch):
     # With nothing windowed available it still returns something usable
     # rather than refusing to make a shortcut at all.
     assert target
+
+
+# --- settings file robustness ---------------------------------------------
+
+
+def test_settings_with_a_byte_order_mark_still_load(tmp_path):
+    """Notepad and PowerShell write a BOM; losing every setting to it is rude."""
+    from claude_profiles.services.settings_service import SettingsService
+
+    data_dir = tmp_path / "ClaudeProfiles"
+    data_dir.mkdir()
+    (data_dir / "settings.json").write_text(
+        '﻿{"refresh_interval_seconds": 300, "notifications_enabled": true}',
+        encoding="utf-8",
+    )
+
+    loaded = SettingsService(data_dir=data_dir).load()
+
+    assert loaded.refresh_interval_seconds == 300
+    assert loaded.notifications_enabled is True
+
+
+def test_corrupt_settings_fall_back_to_defaults(tmp_path):
+    from claude_profiles.services.settings_service import SettingsService
+
+    data_dir = tmp_path / "ClaudeProfiles"
+    data_dir.mkdir()
+    (data_dir / "settings.json").write_text("{not json at all", encoding="utf-8")
+
+    loaded = SettingsService(data_dir=data_dir).load()
+
+    assert loaded.refresh_interval_seconds == 120
+    assert loaded.launch_at_signin is True
