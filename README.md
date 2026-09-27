@@ -236,6 +236,10 @@ and points its shortcuts at the installed build, or a genuinely windowed interpr
 uv pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m pytest -q
 .venv\Scripts\python.exe -m ruff check .
+
+# Optional: check the live claude-swap contract. Read-only; never switches,
+# adds or aliases anything. Worth running after upgrading claude-swap.
+.venv\Scripts\python.exe -m pytest --run-integration -m integration
 ```
 
 See [`docs/development.md`](docs/development.md) and [`docs/architecture.md`](docs/architecture.md).

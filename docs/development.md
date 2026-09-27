@@ -58,7 +58,31 @@ backend.calls                   # recorded invocations
 ```
 
 Coverage is a map of what has been *exercised*, not proof of correctness - but
-every bug found in this project so far lived in code no test executed. Run the
+every bug found in this project so far lived in code no test executed.
+
+### Integration tests
+
+Everything else runs against the mock, so the one assumption never checked is
+that the live tool still emits what the models expect. claude-swap is a
+separate project on its own release cycle, and a renamed field would show up as
+an empty dashboard rather than an error.
+
+```powershell
+.venv\Scripts\python.exe -m pytest --run-integration -m integration -v
+```
+
+They are skipped without the flag, and skip themselves when claude-swap is
+absent or has no accounts.
+
+**They are read-only by construction, not by convention.** They run through a
+`ReadOnlyCswapClient` whose runner refuses any subcommand except `list` and
+`status`, so `switch`, `add`, `alias` and `run` cannot be reached even by
+mistake. A test asserts that guard works, and a second asserts that only read
+commands actually reached a subprocess during the run. Verified by snapshotting
+`cswap list` either side of a run: unchanged.
+
+Run them after upgrading claude-swap. That is the moment this project is most
+likely to break, and the moment nothing else would notice. Run the
 suite several times, too: two of the worst defects here were intermittent, and
 a single green run said nothing.
 
@@ -75,6 +99,7 @@ a single green run said nothing.
 | `test_hotkeys.py` | Win32 registration, partial and total failure, real WM_HOTKEY decoding. |
 | `test_usage_bar.py` | Colour escalation and painting against hostile values. |
 | `test_build_tools.py` | The build verifier's own correctness. |
+| `test_integration_cswap.py` | The live claude-swap contract. Opt-in, read-only. |
 
 ### Testing conventions
 

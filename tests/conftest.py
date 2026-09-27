@@ -72,3 +72,28 @@ def timeout_error() -> subprocess.TimeoutExpired:
 @pytest.fixture
 def settings_service(tmp_path: Path) -> SettingsService:
     return SettingsService(data_dir=tmp_path / "ClaudeProfiles")
+
+
+# --- integration gating ----------------------------------------------------
+#
+# The integration tests talk to the real claude-swap. They are read-only by
+# construction, but they still depend on the machine they run on, so they stay
+# off unless asked for explicitly.
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="Run tests against the real claude-swap installation (read-only).",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--run-integration"):
+        return
+    skip = pytest.mark.skip(reason="needs --run-integration (talks to real claude-swap)")
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip)

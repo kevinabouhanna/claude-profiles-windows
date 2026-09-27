@@ -20,6 +20,9 @@ packages = ["src/claude_profiles"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: talks to the real claude-swap; read-only, needs --run-integration",
+]
 
 [tool.ruff]
 line-length = 100
