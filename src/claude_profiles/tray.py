@@ -638,7 +638,7 @@ class TrayController(QObject):
                 ok, message = True, "Global shortcuts disabled."
             self.profiles.log(message, level="info" if ok else "error")
             if self._window:
-                self._window.set_hotkey_status(message)
+                self._window.set_hotkey_status(message, ok)
 
     def _quit(self) -> None:
         self.polling.stop()
@@ -736,7 +736,7 @@ class TrayController(QObject):
         )
         self.profiles.log(message, level="warning")
         if self._window is not None:
-            self._window.show_banner(message)
+            self._window.show_banner(message, "caution")
 
     # -- presentation -------------------------------------------------------
 
@@ -764,7 +764,7 @@ class TrayController(QObject):
             self._header_action.setText("Claude Profiles")
             return
 
-        self.tray.setIcon(tray_icon(active.profile.color, active.profile.name))
+        self.tray.setIcon(tray_icon(active.profile.color))
         parts = [f"{active.profile.name} active"]
         usage = active.account.effective_usage if active.account else None
         if usage and usage.five_hour:

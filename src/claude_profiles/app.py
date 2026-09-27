@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
-from .resources.icons import tray_icon
+from .resources.icons import app_icon
 from .services.cswap_client import CswapBackend, CswapClient, find_cswap
 from .services.mock_cswap import SCENARIOS, MockCswapClient
 from .services.settings_service import SettingsService
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Claude Profiles")
     app.setOrganizationName("Claude Profiles")
-    app.setWindowIcon(tray_icon())
+    app.setWindowIcon(app_icon())
     # Closing a window returns to the tray; only Quit exits.
     app.setQuitOnLastWindowClosed(False)
 

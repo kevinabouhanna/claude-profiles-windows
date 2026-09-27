@@ -13,8 +13,9 @@ no credential backup, and no writes to `.credentials.json`.
 
 ## What it does
 
-- **One tray icon.** Left-click opens a compact dashboard showing both profiles; right-click opens a
-  native context menu.
+- **One tray icon**, drawn like Windows' own: a monochrome glyph that turns white or black with
+  your taskbar, with a small coloured badge for the active profile. Left-click opens a compact
+  dashboard of both profiles; right-click opens a native context menu.
 - **Both accounts at a glance** — 5-hour and 7-day usage with reset countdowns, optional per-model
   rows, data age, and login health.
 - **One-click switching**, with the switch controls disabled while the action runs and a Windows

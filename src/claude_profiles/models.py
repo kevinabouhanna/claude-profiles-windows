@@ -409,8 +409,10 @@ class ProfileState:
         return self.account is not None and self.account.usage_status.needs_reauth
 
 
-BLUE = "#3b82f6"
-ORANGE = "#f97316"
+# From the Windows accent palette, so profile colours sit naturally beside
+# system chrome. Defined here, the one Qt-free module; theme re-exports them.
+BLUE = "#0078D4"  # Windows default accent
+ORANGE = "#F7630C"  # Windows accent palette, "Orange bright"
 
 DEFAULT_PROFILES: tuple[Profile, ...] = (
     Profile(key="personal", name="Personal", alias="personal", color=BLUE),

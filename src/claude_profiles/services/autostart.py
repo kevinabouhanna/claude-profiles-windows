@@ -132,30 +132,49 @@ def launch_target() -> tuple[str, str]:
     return str(windowed if windowed.is_file() else interpreter), "-m claude_profiles"
 
 
+# Bump when the shortcut icon changes. It is folded into the fingerprint, so
+# existing shortcuts are rewritten once - otherwise they would keep pointing at
+# the previous icon indefinitely, since nothing else prompts a rewrite.
+SHORTCUT_REVISION = 2
+
+
 def target_fingerprint(target: str | None = None) -> str:
-    """A short hash identifying the launcher the shortcuts point at.
+    """A short hash identifying the shortcuts' launcher and their revision.
 
     Used instead of the path itself because the path embeds the Windows
     username and settings.json is documented as holding nothing
     user-identifying. A hash compares just as well for change detection.
     """
     value = target if target is not None else launch_target()[0]
-    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:16]
+    material = f"{value}|rev{SHORTCUT_REVISION}"
+    return hashlib.sha256(material.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+ICON_FILE = f"app-{SHORTCUT_REVISION}.ico"
 
 
 def icon_path(data_dir: Path | None = None) -> str:
-    """Generate (once) an .ico beside the app's data so shortcuts have an icon.
+    """The icon shortcuts should show.
+
+    The packaged exe carries its own multi-resolution icon, so shortcuts point
+    straight at it - one less file to keep in step. Running from source there
+    is no such exe, so an .ico is generated beside the app's data; its name
+    carries the revision, so a changed design is never shadowed by a stale
+    file of the same name.
 
     Honours an overridden data directory so a test or a build verification run
     does not write into the real user profile.
     """
+    if getattr(sys, "frozen", False):
+        return sys.executable
+
     from PySide6.QtGui import QGuiApplication
 
     from ..resources.icons import save_app_icon
     from .settings_service import default_data_dir
 
     base = Path(data_dir) if data_dir else default_data_dir()
-    target = base / "app.ico"
+    target = base / ICON_FILE
     if target.is_file():
         return str(target)
 

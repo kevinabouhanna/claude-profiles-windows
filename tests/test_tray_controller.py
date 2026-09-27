@@ -75,7 +75,7 @@ def test_editing_a_setting_preserves_fields_the_page_does_not_show(tmp_path, qtb
     emitted: list[Settings] = []
     window.settingsChanged.connect(emitted.append)
 
-    window._interval_spin.setValue(300)
+    window._interval_stepper.setValue(300)
 
     assert emitted, "changing the interval should emit"
     latest = emitted[-1]

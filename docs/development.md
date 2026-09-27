@@ -100,6 +100,8 @@ a single green run said nothing.
 | `test_usage_bar.py` | Colour escalation and painting against hostile values. |
 | `test_build_tools.py` | The build verifier's own correctness. |
 | `test_integration_cswap.py` | The live claude-swap contract. Opt-in, read-only. |
+| `test_navigation_ui.py` | Navigation grouping, the toggle and stepper controls, settings wiring. |
+| `test_icons.py` | Tray icon sizes, taskbar-theme contrast, no colour fringing, the `.ico` format. |
 
 ### Testing conventions
 

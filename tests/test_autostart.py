@@ -354,7 +354,7 @@ def test_icon_path_refuses_to_draw_without_a_qt_application(tmp_path, monkeypatc
     monkeypatch.setattr(QGuiApplication, "instance", staticmethod(lambda: None))
 
     assert autostart.icon_path(tmp_path) == ""
-    assert not (tmp_path / "app.ico").exists()
+    assert not (tmp_path / autostart.ICON_FILE).exists()
 
 
 # --- finding 12: the recorded launcher embedded the Windows username ------
@@ -377,3 +377,31 @@ def test_the_fingerprint_is_stable_and_distinguishes_launchers():
 
     assert a == autostart.target_fingerprint(r"C:\one\app.exe")
     assert a != b, "a changed launcher must be detectable"
+
+
+# --- shortcut icon revisions ----------------------------------------------
+
+
+def test_a_new_shortcut_revision_forces_one_rewrite(monkeypatch):
+    """Existing shortcuts must pick up a redesigned icon.
+
+    Nothing else prompts a rewrite, so without the revision in the
+    fingerprint they would show the previous icon indefinitely.
+    """
+    before = autostart.target_fingerprint(r"C:\app.exe")
+    monkeypatch.setattr(autostart, "SHORTCUT_REVISION", autostart.SHORTCUT_REVISION + 1)
+    after = autostart.target_fingerprint(r"C:\app.exe")
+    assert before != after
+
+
+def test_the_packaged_app_uses_its_own_embedded_icon(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", r"C:\Apps\ClaudeProfiles.exe")
+    assert autostart.icon_path(tmp_path) == r"C:\Apps\ClaudeProfiles.exe"
+    assert not any(tmp_path.iterdir()), "no separate .ico should be written"
+
+
+def test_a_generated_icon_carries_the_revision_in_its_name(tmp_path, qapp):
+    written = autostart.icon_path(tmp_path)
+    assert Path(written).name == autostart.ICON_FILE
+    assert str(autostart.SHORTCUT_REVISION) in autostart.ICON_FILE

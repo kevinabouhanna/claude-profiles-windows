@@ -104,5 +104,21 @@ def test_button_styles_are_valid_css_fragments(tokens, monkeypatch):
 
 
 def test_profile_colours_come_from_the_windows_accent_palette():
-    assert theme.BLUE.upper() == "#0078D4"
-    assert theme.ORANGE.upper() == "#F7630C"
+    """Checks the colours the profiles *use*, not a constant beside them.
+
+    An earlier version asserted on theme.BLUE while the profiles read a second
+    definition in models.py with different values, so it passed while the
+    profiles were still the old palette.
+    """
+    from claude_profiles.models import DEFAULT_PROFILES
+
+    colours = {p.key: p.color.upper() for p in DEFAULT_PROFILES}
+    assert colours == {"personal": "#0078D4", "work": "#F7630C"}
+    assert theme.BLUE.upper() == colours["personal"]
+
+
+def test_there_is_one_definition_of_each_profile_colour():
+    from claude_profiles import models
+
+    assert theme.BLUE is models.BLUE
+    assert theme.ORANGE is models.ORANGE

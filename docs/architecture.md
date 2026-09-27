@@ -183,6 +183,22 @@ the progress tracks and status pills ended up as black boxes. Every token is now
 solid hex, which behaves identically in both, and `tests/test_theme.py` asserts that each one parses
 as a valid `QColor` and that none is an `rgba()` string.
 
+### Layout and icons
+
+The main window is a WinUI-style `NavigationPane` beside a stack of `Page`s. Pages
+are built from `SettingsCard`s - icon, title, description, control on the right -
+grouped under section headers, with a `ToggleSwitch` and a `- value +` `Stepper`
+drawn to the WinUI templates because Qt provides neither.
+
+The tray icon follows the notification-area convention of Windows' own icons: a
+monochrome Segoe Fluent glyph drawn at the exact pixel size requested, white on a
+dark taskbar and near-black on a light one (read from `SystemUsesLightTheme`,
+which is separate from the apps theme), with the active profile as a badge in a
+knocked-out ring. It is rendered into `QImage` rather than `QPixmap`, which keeps
+glyph antialiasing greyscale; the previous icon had ClearType colour fringes baked
+into a 16px bitmap. The app icon is a separate coloured tile, written as a real
+multi-resolution `.ico` because Qt's own writer stores a single image.
+
 ## Deliberate non-goals
 
 - No direct Anthropic API calls in version one. All quota data comes from claude-swap.

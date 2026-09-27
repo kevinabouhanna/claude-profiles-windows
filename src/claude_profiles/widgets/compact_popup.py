@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -20,35 +19,10 @@ from PySide6.QtWidgets import (
 from ..models import ProfileState
 from ..resources import fluent_icons
 from . import theme
+from .buttons import icon_button, text_button
 from .profile_card import ProfileCard
 
 POPUP_WIDTH = 440
-
-
-def icon_button(name: str, tooltip: str, size: int = 32) -> QPushButton:
-    """A Fluent subtle button carrying a system glyph and no text."""
-    t = theme.tokens()
-    button = QPushButton()
-    button.setIcon(fluent_icons.icon(name, t.text_secondary, 16))
-    button.setIconSize(fluent_icons.icon_size(16))
-    button.setFixedSize(size, size)
-    button.setToolTip(tooltip)
-    button.setCursor(Qt.CursorShape.PointingHandCursor)
-    button.setStyleSheet(theme.subtle_button_css())
-    return button
-
-
-def text_button(name: str, text: str, *, accent: bool = False) -> QPushButton:
-    t = theme.tokens()
-    button = QPushButton(f"  {text}")
-    color = t.text_on_accent if accent else t.text_secondary
-    button.setIcon(fluent_icons.icon(name, color, 16))
-    button.setIconSize(fluent_icons.icon_size(16))
-    button.setCursor(Qt.CursorShape.PointingHandCursor)
-    button.setStyleSheet(
-        theme.accent_button_css() if accent else theme.standard_button_css()
-    )
-    return button
 
 
 class HintBanner(QFrame):

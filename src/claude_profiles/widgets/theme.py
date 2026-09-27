@@ -42,8 +42,10 @@ CONTROL_HEIGHT = 32
 # -- profile identity ------------------------------------------------------
 # Drawn from the Windows accent palette rather than a generic web palette, so
 # they sit naturally next to system chrome.
-BLUE = "#0078D4"  # Windows default accent
-ORANGE = "#F7630C"  # Windows accent palette, "Orange bright"
+# Profile identity colours live in models (the source of truth); re-exported
+# here so there is exactly one definition. There used to be two, and the
+# profiles used the other one.
+from ..models import BLUE, ORANGE  # noqa: E402,F401
 
 
 def _composite(base: str, overlay: tuple[int, int, int] | str, alpha: float) -> str:
@@ -216,6 +218,27 @@ def refresh_tokens() -> Tokens:
             accent = highlight.name()
     _tokens = _build(dark, accent)
     return _tokens
+
+
+def taskbar_is_dark() -> bool:
+    """Whether the Windows *taskbar* is dark.
+
+    Windows keeps two theme settings: one for apps and one for the taskbar and
+    Start ("Choose your default Windows mode"). They can differ, and the tray
+    icon sits on the taskbar, so it must follow the second. Read-only: this
+    app never writes to the registry.
+    """
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+            return int(value) == 0
+    except (OSError, ImportError, ValueError):
+        return tokens().dark
 
 
 # -- fonts -----------------------------------------------------------------

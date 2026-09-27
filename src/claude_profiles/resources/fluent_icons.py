@@ -26,6 +26,7 @@ GLYPHS: dict[str, str] = {
     "refresh": "",
     "settings": "",
     "close": "",
+    "cancel": "",  # lighter cross, for lists
     "personal": "",  # Contact
     "work": "",  # Work (briefcase)
     "success": "",  # Completed
@@ -38,7 +39,7 @@ GLYPHS: dict[str, str] = {
     "switch": "",
     "open_window": "",  # OpenInNewWindow
     "lock": "",
-    "shield": "",
+    "shield": "",
     "timer": "",  # Stopwatch
     "history": "",
     "add": "",
@@ -54,6 +55,13 @@ GLYPHS: dict[str, str] = {
     "document": "",
     "people": "",
     "play": "",
+    "switch_user": "",  # person with swap arrows - the app mark
+    "accounts": "",  # two people
+    "home": "",
+    "keyboard": "",
+    "bell": "",
+    "minus": "",
+    "clock": "",
 }
 
 
