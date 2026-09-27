@@ -315,3 +315,83 @@ def test_hidden_ui_uses_the_configured_interval():
 
     for configured in (30, 60, 120, 600, 3600):
         assert effective_interval(configured, False) == configured
+
+
+# --- surviving unexpected errors ------------------------------------------
+#
+# run_once used to catch only CswapError. Anything else escaped the worker
+# thread before it could report, so the GUI thread never rescheduled and
+# automatic polling stopped for the rest of the session - the same symptom as
+# a dead timer, reached by a different route.
+
+
+class ExplodingBackend:
+    """Raises something that is *not* a CswapError on a chosen call."""
+
+    def __init__(self, fail_on: int = 2, error: Exception | None = None) -> None:
+        self.calls = 0
+        self.fail_on = fail_on
+        self.error = error or RuntimeError("unexpected boom")
+
+    def list_accounts(self) -> AccountList:
+        self.calls += 1
+        if self.calls == self.fail_on:
+            raise self.error
+        return AccountList.parse(fx.VALID_LIST)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("boom"),
+        ValueError("bad value"),
+        OSError("device not ready"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        KeyError("missing"),
+    ],
+)
+def test_unexpected_errors_become_results(error):
+    backend = ExplodingBackend(fail_on=1, error=error)
+    coordinator = PollingCoordinator(backend, lambda: 120)
+
+    result = coordinator.run_once()
+
+    assert result is not None, "must report rather than raise"
+    assert result.ok is False
+    assert result.error is not None
+    assert coordinator.is_polling is False
+
+
+def test_unexpected_error_does_not_leak_its_text():
+    secret = RuntimeError('token="sk-ant-api03-ABCDEF1234567890"')
+    coordinator = PollingCoordinator(ExplodingBackend(1, secret), lambda: 120)
+
+    result = coordinator.run_once()
+
+    assert result is not None and result.error is not None
+    assert "sk-ant" not in result.error.user_message
+
+
+def test_unexpected_error_advances_backoff_then_recovers():
+    backend = ExplodingBackend(fail_on=1)
+    coordinator = PollingCoordinator(backend, lambda: 120)
+
+    coordinator.run_once()
+    assert coordinator.consecutive_failures == 1
+
+    assert coordinator.run_once().ok is True
+    assert coordinator.consecutive_failures == 0
+
+
+def test_polling_loop_survives_an_unexpected_error(qtbot):
+    """The regression: one odd exception used to stop polling forever."""
+    from claude_profiles.services.polling_service import PollingService
+
+    backend = ExplodingBackend(fail_on=2)
+    svc = PollingService(backend, lambda: 5.0)
+    svc.start()
+
+    qtbot.waitUntil(lambda: backend.calls >= 3, timeout=30000)
+    assert backend.calls >= 3
+    assert svc._timer.isActive()
+    svc.stop()

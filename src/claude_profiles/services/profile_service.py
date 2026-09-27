@@ -59,6 +59,7 @@ class ProfileService(QObject):
         self._busy_lock = threading.Lock()
         self._last_active_key: str | None = None
         self._warned_schema = False
+        self._reauth_warned: set[str] = set()
         # Retained so the setup page can show accounts that carry no alias yet.
         self.last_accounts: AccountList | None = None
         self.last_status: ActiveStatus | None = None
@@ -142,9 +143,21 @@ class ProfileService(QObject):
                 self.log(f"{self._name(active_key)} is the active account")
             self._last_active_key = active_key
 
+        # Log the *transition*, not the condition. Logging on every poll filled
+        # the capped history with one repeated line - at a two-minute interval
+        # that is 30 an hour, which evicts every switch and error inside a day.
         for state in self.states:
+            key = state.profile.key
             if state.needs_reauth:
-                self.log(f"{state.profile.name} requires re-authentication", level="warning")
+                if key not in self._reauth_warned:
+                    self._reauth_warned.add(key)
+                    self.log(
+                        f"{state.profile.name} requires re-authentication",
+                        level="warning",
+                    )
+            elif key in self._reauth_warned:
+                self._reauth_warned.discard(key)
+                self.log(f"{state.profile.name} is signed in again")
 
         self.statesChanged.emit()
 

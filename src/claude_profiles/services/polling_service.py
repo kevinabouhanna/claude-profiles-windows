@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from ..models import AccountList
 from .cswap_client import CswapBackend, CswapError, CswapErrorKind
+from .redaction import redact_exception
 
 MAX_BACKOFF_SECONDS = 900.0
 
@@ -112,6 +113,16 @@ class PollingCoordinator:
                 self._consecutive_failures += 1
             self.last_error = exc
             return PollResult(error=exc)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # Anything not already a CswapError - a decode error, an OSError
+            # from the subprocess layer, a bug in parsing - must still come
+            # back as a result. Letting it escape kills the worker thread
+            # before it can report, so the caller never reschedules and
+            # automatic polling stops for the rest of the session.
+            wrapped = CswapError(CswapErrorKind.UNKNOWN, redact_exception(exc))
+            self._consecutive_failures += 1
+            self.last_error = wrapped
+            return PollResult(error=wrapped)
         else:
             self._consecutive_failures = 0
             self.last_error = None
@@ -209,7 +220,16 @@ class PollingService(QObject):
         return self.poll_now()
 
     def _work(self) -> None:
-        self._resultReady.emit(self.coordinator.run_once())
+        # run_once already converts unexpected errors into a result; this guard
+        # covers a failure in run_once itself. The loop only continues because
+        # _on_result runs, so the worker must always emit exactly once.
+        try:
+            result = self.coordinator.run_once()
+        except Exception as exc:  # noqa: BLE001 - a dead loop is worse
+            result = PollResult(
+                error=CswapError(CswapErrorKind.UNKNOWN, redact_exception(exc))
+            )
+        self._resultReady.emit(result)
 
     @Slot(object)
     def _on_result(self, result: PollResult | None) -> None:

@@ -435,3 +435,49 @@ def test_setup_activity_lines_are_safe(empty_service):
     for entry in svc.recent_activity():
         assert not contains_secret(entry.message), entry.message
         assert "sk-ant" not in entry.message
+
+
+# --- activity log volume ---------------------------------------------------
+
+
+def test_reauth_is_logged_once_not_every_poll(settings_service):
+    """A condition logged per poll fills a capped history with one line.
+
+    At a two-minute interval that is 30 identical entries an hour, which
+    evicts every switch and error from the 500-entry log inside a day.
+    """
+    svc = ProfileService(MockCswapClient("work_reauth"), settings_service)
+
+    for _ in range(12):
+        svc.apply_accounts(svc._backend.list_accounts())
+
+    warnings = [
+        e for e in svc.recent_activity() if "requires re-authentication" in e.message
+    ]
+    assert len(warnings) == 1, f"logged {len(warnings)} times, expected once"
+
+
+def test_recovering_from_reauth_is_logged_and_rearms(settings_service):
+    healthy = MockCswapClient("healthy")
+    broken = MockCswapClient("work_reauth")
+    svc = ProfileService(broken, settings_service)
+
+    svc.apply_accounts(broken.list_accounts())
+    svc.apply_accounts(healthy.list_accounts())
+    svc.apply_accounts(broken.list_accounts())
+
+    messages = [e.message for e in svc.recent_activity()]
+    assert sum("requires re-authentication" in m for m in messages) == 2
+    assert any("signed in again" in m for m in messages)
+
+
+def test_steady_state_polling_writes_nothing(settings_service):
+    """Nothing changed means nothing worth recording."""
+    svc = ProfileService(MockCswapClient("healthy"), settings_service)
+    svc.apply_accounts(svc._backend.list_accounts())
+    before = len(svc.recent_activity())
+
+    for _ in range(10):
+        svc.apply_accounts(svc._backend.list_accounts())
+
+    assert len(svc.recent_activity()) == before
