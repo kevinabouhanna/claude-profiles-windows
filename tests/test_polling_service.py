@@ -405,6 +405,10 @@ def test_polling_loop_survives_an_unexpected_error(qtbot):
         svc.start()
         qtbot.waitUntil(lambda: backend.calls >= 3, timeout=30000)
         assert backend.calls >= 3
-        assert svc._timer.isActive()
+        # waitUntil returns as soon as the third call *begins* - from inside
+        # list_accounts, before _on_result has re-armed the timer. Asserting
+        # isActive() right here is a race against the poll in flight, so wait
+        # for the arming instead; that it happens at all is the point.
+        qtbot.waitUntil(lambda: svc._timer.isActive(), timeout=15000)
     finally:
         svc.stop()
