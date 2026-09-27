@@ -17,6 +17,8 @@ Personal alias, so the identity is shown directly above the button.
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -293,9 +295,17 @@ class SetupPage(QWidget):
         self._alias_account.clear()
         if accounts is not None:
             for account in accounts.accounts:
-                alias = f" · alias <b>{account.alias}</b>" if account.alias else ""
+                # The label renders rich text, so anything taken from cswap
+                # has to be escaped or an address containing "<" would be
+                # swallowed as markup.
+                email = html.escape(account.email)
+                alias = (
+                    f" · alias <b>{html.escape(account.alias)}</b>"
+                    if account.alias
+                    else ""
+                )
                 active = " · active" if account.active else ""
-                rows.append(f"{account.number}. {account.email}{alias}{active}")
+                rows.append(f"{account.number}. {email}{alias}{active}")
                 if account.number is not None:
                     label = f"{account.number}. {account.email}"
                     if account.alias:

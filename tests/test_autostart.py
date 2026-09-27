@@ -311,3 +311,69 @@ def test_corrupt_settings_fall_back_to_defaults(tmp_path):
 
     assert loaded.refresh_interval_seconds == 120
     assert loaded.launch_at_signin is True
+
+
+# --- finding 10: the icon ignored an overridden data directory ------------
+
+
+def test_icon_is_written_to_the_given_data_directory(tmp_path, monkeypatch, qapp):
+    """--data-dir exists so a test or build check stays out of the real profile."""
+    from claude_profiles.services import settings_service
+
+    real = tmp_path / "real"
+    override = tmp_path / "override"
+    override.mkdir(parents=True)
+    monkeypatch.setattr(settings_service, "default_data_dir", lambda: real)
+
+    written = autostart.icon_path(override)
+
+    assert written, "an icon should have been produced"
+    assert Path(written).parent == override
+    assert not real.exists(), "the real data folder must not be touched"
+
+
+def test_icon_path_reports_failure_rather_than_a_missing_file(
+    tmp_path, monkeypatch, qapp
+):
+    """QPixmap.save signals failure by returning False, not by raising."""
+    from claude_profiles.resources import icons
+
+    monkeypatch.setattr(icons, "save_app_icon", lambda p, **k: p)  # writes nothing
+    assert autostart.icon_path(tmp_path) == ""
+
+
+def test_icon_path_refuses_to_draw_without_a_qt_application(tmp_path, monkeypatch):
+    """Constructing a QPixmap with no QGuiApplication aborts the process.
+
+    It is not a catchable exception - the interpreter dies with no traceback,
+    which is how a PyInstaller build once appeared to crash at the PYZ stage
+    for no reason. Returning "" gives a shortcut without an icon instead.
+    """
+    from PySide6.QtGui import QGuiApplication
+
+    monkeypatch.setattr(QGuiApplication, "instance", staticmethod(lambda: None))
+
+    assert autostart.icon_path(tmp_path) == ""
+    assert not (tmp_path / "app.ico").exists()
+
+
+# --- finding 12: the recorded launcher embedded the Windows username ------
+
+
+def test_the_recorded_launcher_is_a_hash_not_a_path():
+    """settings.json is documented as holding nothing user-identifying."""
+    target = r"C:\Users\somebody\AppData\Local\Programs\Claude Profiles\App.exe"
+    fingerprint = autostart.target_fingerprint(target)
+
+    assert len(fingerprint) == 16
+    assert all(c in "0123456789abcdef" for c in fingerprint)
+    assert "somebody" not in fingerprint
+    assert "\\" not in fingerprint and "/" not in fingerprint
+
+
+def test_the_fingerprint_is_stable_and_distinguishes_launchers():
+    a = autostart.target_fingerprint(r"C:\one\app.exe")
+    b = autostart.target_fingerprint(r"C:\two\app.exe")
+
+    assert a == autostart.target_fingerprint(r"C:\one\app.exe")
+    assert a != b, "a changed launcher must be detectable"

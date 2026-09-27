@@ -149,19 +149,30 @@ def icon_path(data_dir: Path | None = None) -> str:
     Honours an overridden data directory so a test or a build verification run
     does not write into the real user profile.
     """
+    from PySide6.QtGui import QGuiApplication
+
     from ..resources.icons import save_app_icon
     from .settings_service import default_data_dir
 
     base = Path(data_dir) if data_dir else default_data_dir()
     target = base / "app.ico"
+    if target.is_file():
+        return str(target)
+
+    if QGuiApplication.instance() is None:
+        # Drawing the icon needs a QPixmap, and constructing one without a
+        # QGuiApplication aborts the process outright - not an exception that
+        # can be caught. A shortcut without an icon is a far better outcome
+        # than killing whatever called this.
+        return ""
+
+    try:
+        save_app_icon(target)
+    except (OSError, ValueError):
+        return ""
     if not target.is_file():
-        try:
-            save_app_icon(target)
-        except (OSError, ValueError):
-            return ""
-        if not target.is_file():
-            # QPixmap.save reports failure by returning False, not raising.
-            return ""
+        # QPixmap.save reports failure by returning False, not raising.
+        return ""
     return str(target)
 
 
