@@ -52,7 +52,15 @@ backend.calls                   # recorded invocations
 .venv\Scripts\python.exe -m pytest -q
 .venv\Scripts\python.exe -m ruff check .
 .venv\Scripts\python.exe -m mypy src
+
+# Where the gaps are. Anything that drops sharply is worth a look.
+.venv\Scripts\python.exe -m pytest -q --cov=claude_profiles --cov-report=term-missing
 ```
+
+Coverage is a map of what has been *exercised*, not proof of correctness - but
+every bug found in this project so far lived in code no test executed. Run the
+suite several times, too: two of the worst defects here were intermittent, and
+a single green run said nothing.
 
 | File | Covers |
 |---|---|
@@ -62,6 +70,11 @@ backend.calls                   # recorded invocations
 | `test_polling_service.py` | 50-thread overlap test, backoff ladder, last-known-value retention. |
 | `test_process_launcher.py` | PowerShell quoting, Windows Terminal argv, console-flag handling. |
 | `test_theme.py` | Every Fluent token parses as a QColor, tone ordering, stylesheet integrity. |
+| `test_tray_controller.py` | The high-severity audit fixes, each verified to fail without its fix. |
+| `test_notification_service.py` | The threshold latch: crossing, not repeating, re-arming after a reset. |
+| `test_hotkeys.py` | Win32 registration, partial and total failure, real WM_HOTKEY decoding. |
+| `test_usage_bar.py` | Colour escalation and painting against hostile values. |
+| `test_build_tools.py` | The build verifier's own correctness. |
 
 ### Testing conventions
 
