@@ -88,6 +88,16 @@ class PollingCoordinator:
     def consecutive_failures(self) -> int:
         return self._consecutive_failures
 
+    def try_begin(self) -> bool:
+        """Claim the single poll slot, or return False if one is running.
+
+        Public so the caller can claim *before* announcing a poll has started.
+        Checking `is_polling` and then spawning a worker is not atomic: two
+        callers could both pass the check, both announce a start, and only one
+        do any work - leaving the status line stuck on "Refreshing...".
+        """
+        return self._try_begin()
+
     def _try_begin(self) -> bool:
         with self._lock:
             if self._inflight:
@@ -104,6 +114,10 @@ class PollingCoordinator:
         """Run one poll, or return ``None`` if one is already in flight."""
         if not self._try_begin():
             return None
+        return self.run_claimed()
+
+    def run_claimed(self) -> PollResult:
+        """Run a poll whose slot the caller already claimed."""
         try:
             accounts = self._backend.list_accounts()
         except CswapError as exc:
@@ -177,6 +191,12 @@ class PollingService(QObject):
         self._timer.timeout.connect(self.poll_now)
         self._resultReady.connect(self._on_result)
         self._running = False
+        # A poll runs on a worker thread that holds a reference to this object
+        # and emits into it when it finishes. Nothing used to wait for that
+        # thread, so the object could be torn down first and the emit would
+        # land on freed memory - an access violation, not an exception.
+        self._shutdown = threading.Event()
+        self._worker: threading.Thread | None = None
 
     @property
     def is_running(self) -> bool:
@@ -188,9 +208,20 @@ class PollingService(QObject):
         self._running = True
         self.poll_now()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 30.0) -> None:
+        """Stop polling and wait for any in-flight poll to finish.
+
+        Waiting matters: the worker emits into this object, so returning while
+        it is still running leaves a thread holding a reference to something
+        the caller is about to destroy.
+        """
         self._running = False
+        self._shutdown.set()
         self._timer.stop()
+        worker = self._worker
+        if worker is not None and worker.is_alive():
+            worker.join(timeout)
+        self._worker = None
 
     def reschedule(self) -> None:
         """Restart the countdown, e.g. after the interval setting changed."""
@@ -200,10 +231,11 @@ class PollingService(QObject):
 
     def poll_now(self) -> bool:
         """Request a poll. Returns False if one is already in flight."""
-        if self.coordinator.is_polling:
+        if self._shutdown.is_set() or not self.coordinator.try_begin():
             return False
         self.pollStarted.emit()
         thread = threading.Thread(target=self._work, name="cswap-poll", daemon=True)
+        self._worker = thread
         thread.start()
         return True
 
@@ -224,18 +256,24 @@ class PollingService(QObject):
         # covers a failure in run_once itself. The loop only continues because
         # _on_result runs, so the worker must always emit exactly once.
         try:
-            result = self.coordinator.run_once()
+            result = self.coordinator.run_claimed()
         except Exception as exc:  # noqa: BLE001 - a dead loop is worse
             result = PollResult(
                 error=CswapError(CswapErrorKind.UNKNOWN, redact_exception(exc))
             )
+        if self._shutdown.is_set():
+            # Being torn down: the receiver may already be gone.
+            return
         self._resultReady.emit(result)
 
     @Slot(object)
     def _on_result(self, result: PollResult | None) -> None:
         # Runs on the GUI thread, so the timer below is safe to touch.
         if result is None:
-            # Lost the race against another poll; the winner reports.
+            # Should not happen now the slot is claimed up front, but a start
+            # was announced, so a finish must follow or the UI stays busy.
+            self.pollFinished.emit()
+            self.reschedule()
             return
         if result.accounts is not None:
             self.pollSucceeded.emit(result.accounts)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Claude Profiles")
         self.resize(880, 660)
         self._loading_settings = False
+        self._settings = settings
         self._cards: dict[str, ProfileCard] = {}
 
         self.setup_page = SetupPage(tuple(s.profile for s in states))
@@ -272,8 +275,13 @@ class MainWindow(QMainWindow):
     def _emit_settings(self) -> None:
         if self._loading_settings:
             return
+        # Update the settings we hold rather than constructing fresh ones:
+        # this page owns six fields, and building a new Settings() would reset
+        # everything else it does not display - autostart_target and
+        # profile_aliases - back to defaults on every keystroke.
         self.settingsChanged.emit(
-            Settings(
+            replace(
+                self._settings,
                 refresh_interval_seconds=self._interval_spin.value(),
                 launch_at_signin=self._autostart_check.isChecked(),
                 notifications_enabled=self._notify_check.isChecked(),
@@ -285,6 +293,7 @@ class MainWindow(QMainWindow):
 
     def load_settings(self, settings: Settings) -> None:
         """Push values back into the controls without re-emitting."""
+        self._settings = settings
         self._loading_settings = True
         try:
             self._interval_spin.setValue(settings.refresh_interval_seconds)

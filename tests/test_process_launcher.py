@@ -174,3 +174,29 @@ def test_keep_open_command_has_no_pause_clause():
     command = build_powershell_command([r"C:\cswap.exe", "run", "1"], keep_open=True)
     assert "Read-Host" not in command
     assert command == r"& 'C:\cswap.exe' 'run' '1'"
+
+
+def test_one_shot_command_contains_no_semicolon():
+    """Windows Terminal splits its command line on an unescaped ';'.
+
+    Verified against wt directly: a ';' truncated the command, the statement
+    after it never ran, and wt tried to parse the remainder as another
+    subcommand. PowerShell accepts a newline as a statement separator and wt
+    passes it through, so the failure-pause is joined with one.
+    """
+    command = build_powershell_command([r"C:\claude.exe", "auth", "login"], keep_open=False)
+    assert ";" not in command, "a semicolon here is eaten by Windows Terminal"
+    assert "\n" in command
+    assert "Read-Host" in command
+
+
+def test_windows_terminal_argv_carries_the_whole_command():
+    launcher = ProcessLauncher(terminal=r"C:\wt.exe", shell=r"C:\powershell.exe")
+    argv, used_wt = launcher.build_argv(
+        [r"C:\claude.exe", "auth", "login"], "Sign in", keep_open=False
+    )
+
+    assert used_wt is True
+    command = argv[-1]
+    assert ";" not in command
+    assert "auth" in command and "Read-Host" in command

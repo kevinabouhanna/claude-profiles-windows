@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
@@ -49,8 +50,10 @@ class Settings:
     warn_threshold_pct: int = 80
     critical_threshold_pct: int = 95
     hotkeys_enabled: bool = False
-    # Which executable the Windows shortcuts were written for. Lets startup
-    # notice that a better launcher (the installed exe) is now available.
+    # A short hash of the executable the Windows shortcuts were written for,
+    # so startup can notice that a better launcher is now available. Hashed
+    # rather than stored: the path contains the Windows username, and this file
+    # is documented as holding no user-identifying data.
     autostart_target: str = ""
     profile_aliases: dict[str, str] = field(
         default_factory=lambda: {"personal": "personal", "work": "work"}
@@ -75,6 +78,8 @@ class SettingsService:
     def __init__(self, data_dir: Path | None = None) -> None:
         self._data_dir = Path(data_dir) if data_dir else default_data_dir()
         self._settings: Settings | None = None
+        # Startup reconciliation and the poll loop can both log at once.
+        self._activity_lock = threading.Lock()
 
     @property
     def data_dir(self) -> Path:

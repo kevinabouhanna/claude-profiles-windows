@@ -29,10 +29,11 @@ Both **Open data folder** and **Clear local activity history** are available in 
 | Field | Example | Notes |
 |---|---|---|
 | `refresh_interval_seconds` | `120` | |
-| `launch_at_signin` | `false` | |
+| `launch_at_signin` | `true` | |
 | `notifications_enabled` | `false` | |
 | `warn_threshold_pct` / `critical_threshold_pct` | `80` / `95` | |
 | `hotkeys_enabled` | `false` | |
+| `autostart_target` | `0ab8bec2806c4a1d` | A short hash of the launcher the shortcuts point at, so a stale shortcut can be detected. Hashed, not stored as a path, because a path contains your Windows username. |
 | `profile_aliases` | `{"personal": "personal", "work": "work"}` | Non-secret claude-swap aliases. |
 
 **`activity.jsonl`** — one JSON object per line, each a timestamp, a level, and a safe message:

@@ -19,7 +19,6 @@ Usage:  python tools/verify_build.py [path-to-exe]
 
 from __future__ import annotations
 
-import ctypes
 import subprocess
 import sys
 import time
@@ -28,8 +27,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EXE = ROOT / "dist" / "Claude Profiles" / "ClaudeProfiles.exe"
 
-SUBSYSTEM_GUI = 2
 STARTUP_GRACE_SECONDS = 25
+
+sys.path.insert(0, str(ROOT / "src"))
 
 
 class Failure(Exception):
@@ -37,24 +37,42 @@ class Failure(Exception):
 
 
 def check_subsystem(exe: Path) -> None:
-    data = exe.read_bytes()
-    if data[:2] != b"MZ":
-        raise Failure("not a PE binary")
-    pe = int.from_bytes(data[0x3C:0x40], "little")
-    if data[pe : pe + 4] != b"PE\0\0":
-        raise Failure("bad PE header")
-    subsystem = int.from_bytes(data[pe + 24 + 68 : pe + 24 + 70], "little")
-    if subsystem != SUBSYSTEM_GUI:
-        raise Failure(f"subsystem is {subsystem}, expected {SUBSYSTEM_GUI} (windowed)")
-    print(f"  ok  windowed binary (PE subsystem {subsystem})")
+    """Reuses the app's own PE check rather than keeping a second copy of it."""
+    from claude_profiles.services.autostart import is_gui_executable
+
+    windowed = is_gui_executable(exe)
+    if windowed is None:
+        raise Failure("could not read the PE header")
+    if not windowed:
+        raise Failure("console-subsystem binary - it would open a terminal")
+    print("  ok  windowed binary (PE subsystem 2)")
+
+
+# Probing for a console requires detaching from our own first, which would
+# close this process's stdout handle and swallow every later line - including
+# the verdict. Run the probe in a child instead so our console survives.
+_PROBE = """
+import ctypes, sys
+k = ctypes.windll.kernel32
+k.FreeConsole()
+attached = k.AttachConsole(int(sys.argv[1]))
+if attached:
+    k.FreeConsole()
+sys.exit(0 if not attached else 1)
+"""
 
 
 def check_no_console(pid: int) -> None:
-    kernel32 = ctypes.windll.kernel32
-    kernel32.FreeConsole()
-    if kernel32.AttachConsole(pid):
-        kernel32.FreeConsole()
+    probe = subprocess.run(
+        [sys.executable, "-c", _PROBE, str(pid)],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if probe.returncode == 1:
         raise Failure("a console is attached - a terminal would be visible")
+    if probe.returncode != 0:
+        raise Failure(f"console probe failed (exit {probe.returncode})")
     print("  ok  no console attached to the process")
 
 
@@ -66,7 +84,15 @@ def check_starts_and_works(exe: Path, data_dir: Path) -> None:
     err_path = data_dir / "err.txt"
     with err_path.open("wb") as err:
         process = subprocess.Popen(
-            [str(exe), "--mock", "--data-dir", str(data_dir)],
+            # --no-windows-integration: verifying a build must not rewrite
+            # the developer's real Startup and Start menu shortcuts.
+            [
+                str(exe),
+                "--mock",
+                "--no-windows-integration",
+                "--data-dir",
+                str(data_dir),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=err,
         )

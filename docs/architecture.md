@@ -51,7 +51,7 @@ Neither accepts a file path, so no code path can reach a credential file even by
 | `services/settings_service.py` | ACL-locked JSON prefs and capped activity history. |
 | `services/process_launcher.py` | Opens a visible terminal; reads nothing back. |
 | `services/notification_service.py` | Tray balloons plus the threshold latch. |
-| `services/autostart.py`, `hotkeys.py` | Opt-in Windows integration, both off by default. |
+| `services/autostart.py`, `hotkeys.py` | Windows integration. Hotkeys are opt-in; start-at-sign-in defaults on (see the note in `docs/development.md`). |
 | `widgets/`, `main_window.py`, `tray.py` | Presentation only; no subprocess or file access. |
 
 ## The claude-swap contract, as verified

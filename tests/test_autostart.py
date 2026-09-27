@@ -32,7 +32,7 @@ def fake_creator(monkeypatch):
     """Record shortcut writes instead of shelling out to PowerShell."""
     created: list[Path] = []
 
-    def _create(link: Path, *, description: str = "") -> tuple[bool, str]:
+    def _create(link: Path, *, description: str = "", data_dir=None) -> tuple[bool, str]:
         link.parent.mkdir(parents=True, exist_ok=True)
         link.write_text("shortcut", encoding="utf-8")
         created.append(link)
@@ -106,7 +106,7 @@ def test_reconcile_creates_when_setting_is_on(fake_dirs, fake_creator):
 def test_reconcile_is_a_noop_when_already_correct(fake_dirs, fake_creator):
     autostart.set_enabled(True)
     fake_creator.clear()
-    current = autostart.launch_target()[0]
+    current = autostart.target_fingerprint()
 
     assert autostart.reconcile(True, current) is None
     assert fake_creator == []  # nothing rewritten
@@ -148,11 +148,25 @@ def test_start_menu_entry_is_created_once(fake_dirs, fake_creator):
 
 
 def test_start_menu_entry_is_not_recreated_after_removal(fake_dirs, fake_creator):
-    """Deleting it is a user decision, not drift to be corrected."""
+    """Deleting it is a user decision, not drift to be corrected.
+
+    The point is what happens on the *next* start, so this has to call
+    ensure_start_menu_entry() again - the earlier version stopped at asserting
+    the file was gone and passed while the entry was being recreated.
+    """
     _, start_menu = fake_dirs
     autostart.ensure_start_menu_entry()
+    recorded = autostart.target_fingerprint()
     autostart.remove_start_menu_entry()
     assert not (start_menu / autostart.SHORTCUT_NAME).exists()
+
+    fake_creator.clear()
+    autostart.ensure_start_menu_entry(recorded)
+
+    assert not (start_menu / autostart.SHORTCUT_NAME).exists(), (
+        "a deleted Start menu entry must stay deleted"
+    )
+    assert fake_creator == []
 
 
 # --- launch target ---------------------------------------------------------
@@ -195,7 +209,7 @@ def test_reconcile_rewrites_a_shortcut_left_on_an_old_launcher(fake_dirs, fake_c
     autostart.set_enabled(True)
     fake_creator.clear()
 
-    result = autostart.reconcile(True, r"C:\old\pythonw.exe")
+    result = autostart.reconcile(True, autostart.target_fingerprint(r"C:\old\pythonw.exe"))
 
     assert result is not None and result[0] is True
     assert fake_creator, "shortcut should have been rewritten"
@@ -204,7 +218,7 @@ def test_reconcile_rewrites_a_shortcut_left_on_an_old_launcher(fake_dirs, fake_c
 def test_reconcile_leaves_a_matching_shortcut_alone(fake_dirs, fake_creator):
     autostart.set_enabled(True)
     fake_creator.clear()
-    current = autostart.launch_target()[0]
+    current = autostart.target_fingerprint()
 
     assert autostart.reconcile(True, current) is None
     assert fake_creator == []
@@ -214,7 +228,7 @@ def test_start_menu_entry_is_rewritten_when_the_target_changes(fake_dirs, fake_c
     autostart.ensure_start_menu_entry()
     fake_creator.clear()
 
-    result = autostart.ensure_start_menu_entry(r"C:\old\pythonw.exe")
+    result = autostart.ensure_start_menu_entry(autostart.target_fingerprint(r"C:\old\pythonw.exe"))
 
     assert result is not None and result[0] is True
     assert fake_creator
@@ -235,17 +249,35 @@ def test_installed_exe_is_preferred_over_the_interpreter(tmp_path, monkeypatch):
     assert arguments == ""
 
 
-def test_launch_target_rejects_a_console_trampoline(tmp_path, monkeypatch):
-    """uv's venv pythonw.exe is console-subsystem despite the name."""
+def test_a_windowed_interpreter_is_preferred_over_a_trampoline(tmp_path, monkeypatch):
+    """uv's venv pythonw.exe is console-subsystem despite the name.
+
+    Asserting only that *something* was returned could not tell rejecting a
+    trampoline from returning it, which is what the fallback does.
+    """
     monkeypatch.setattr(autostart, "install_dir", lambda: tmp_path / "absent")
     monkeypatch.setattr(sys, "frozen", False, raising=False)
-    monkeypatch.setattr(autostart, "is_gui_executable", lambda p: False)
 
-    target, _ = autostart.launch_target()
+    venv = tmp_path / "venv" / "Scripts"
+    venv.mkdir(parents=True)
+    trampoline = venv / "pythonw.exe"
+    trampoline.write_bytes(b"MZ")
+    base = tmp_path / "base"
+    base.mkdir()
+    windowed = base / "pythonw.exe"
+    windowed.write_bytes(b"MZ")
 
-    # With nothing windowed available it still returns something usable
-    # rather than refusing to make a shortcut at all.
-    assert target
+    monkeypatch.setattr(sys, "executable", str(venv / "python.exe"))
+    monkeypatch.setattr(sys, "_base_executable", str(base / "python.exe"), raising=False)
+    # Only the base one is a real windowed binary.
+    monkeypatch.setattr(
+        autostart, "is_gui_executable", lambda p: Path(p) == windowed
+    )
+
+    target, arguments = autostart.launch_target()
+
+    assert target == str(windowed), "must skip the console trampoline"
+    assert arguments == "-m claude_profiles"
 
 
 # --- settings file robustness ---------------------------------------------

@@ -157,7 +157,10 @@ class ProfileService(QObject):
                     )
             elif key in self._reauth_warned:
                 self._reauth_warned.discard(key)
-                self.log(f"{state.profile.name} is signed in again")
+                # needs_reauth is also False when the account disappeared from
+                # cswap entirely, which is not a recovery worth announcing.
+                if state.account is not None:
+                    self.log(f"{state.profile.name} is signed in again")
 
         self.statesChanged.emit()
 

@@ -11,6 +11,7 @@ application.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -131,16 +132,35 @@ def launch_target() -> tuple[str, str]:
     return str(windowed if windowed.is_file() else interpreter), "-m claude_profiles"
 
 
-def icon_path() -> str:
-    """Generate (once) an .ico beside the app's data so shortcuts have an icon."""
+def target_fingerprint(target: str | None = None) -> str:
+    """A short hash identifying the launcher the shortcuts point at.
+
+    Used instead of the path itself because the path embeds the Windows
+    username and settings.json is documented as holding nothing
+    user-identifying. A hash compares just as well for change detection.
+    """
+    value = target if target is not None else launch_target()[0]
+    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def icon_path(data_dir: Path | None = None) -> str:
+    """Generate (once) an .ico beside the app's data so shortcuts have an icon.
+
+    Honours an overridden data directory so a test or a build verification run
+    does not write into the real user profile.
+    """
     from ..resources.icons import save_app_icon
     from .settings_service import default_data_dir
 
-    target = default_data_dir() / "app.ico"
+    base = Path(data_dir) if data_dir else default_data_dir()
+    target = base / "app.ico"
     if not target.is_file():
         try:
             save_app_icon(target)
         except (OSError, ValueError):
+            return ""
+        if not target.is_file():
+            # QPixmap.save reports failure by returning False, not raising.
             return ""
     return str(target)
 
@@ -149,7 +169,7 @@ def icon_path() -> str:
 
 
 def _create_shortcut(
-    link: Path, *, description: str = APP_NAME
+    link: Path, *, description: str = APP_NAME, data_dir: Path | None = None
 ) -> tuple[bool, str]:
     """Author a .lnk with WScript.Shell, the dependency-free Windows way."""
     if sys.platform != "win32":
@@ -177,7 +197,7 @@ def _create_shortcut(
             "CP_TARGET": target,
             "CP_ARGS": arguments,
             "CP_DESC": description,
-            "CP_ICON": icon_path(),
+            "CP_ICON": icon_path(data_dir),
         }
     )
     try:
@@ -213,7 +233,7 @@ def is_enabled() -> bool:
     return bool(path and path.is_file())
 
 
-def set_enabled(enabled: bool) -> tuple[bool, str]:
+def set_enabled(enabled: bool, data_dir: Path | None = None) -> tuple[bool, str]:
     """Create or remove the Startup shortcut. Returns ``(ok, message)``."""
     path = shortcut_path()
     if path is None:
@@ -223,13 +243,17 @@ def set_enabled(enabled: bool) -> tuple[bool, str]:
         ok, message = _remove(path)
         return (True, "Removed from Windows startup.") if ok else (False, message)
 
-    ok, message = _create_shortcut(path, description="Claude Profiles (starts at sign-in)")
+    ok, message = _create_shortcut(
+        path, description="Claude Profiles (starts at sign-in)", data_dir=data_dir
+    )
     if not ok:
         return False, message
     return True, "Claude Profiles will start when you sign in to Windows."
 
 
-def reconcile(desired: bool, recorded_target: str = "") -> tuple[bool, str] | None:
+def reconcile(
+    desired: bool, recorded_target: str = "", data_dir: Path | None = None
+) -> tuple[bool, str] | None:
     """Make the filesystem match the setting.
 
     Called at startup so a default-on preference actually takes effect on a
@@ -237,13 +261,13 @@ def reconcile(desired: bool, recorded_target: str = "") -> tuple[bool, str] | No
     still enabled, and so a shortcut left pointing at an old launcher is
     rewritten once a better one exists. Returns None when nothing needs doing.
     """
-    current = launch_target()[0]
+    current = target_fingerprint()
     if desired:
         if is_enabled() and recorded_target == current:
             return None
-        return set_enabled(True)
+        return set_enabled(True, data_dir)
     if is_enabled():
-        return set_enabled(False)
+        return set_enabled(False, data_dir)
     return None
 
 
@@ -255,7 +279,9 @@ def has_start_menu_entry() -> bool:
     return bool(path and path.is_file())
 
 
-def ensure_start_menu_entry(recorded_target: str = "") -> tuple[bool, str] | None:
+def ensure_start_menu_entry(
+    recorded_target: str = "", data_dir: Path | None = None
+) -> tuple[bool, str] | None:
     """Put the app in the Start menu so it is launchable like any other app.
 
     Created once and then left alone, except when the launch target changes -
@@ -266,11 +292,16 @@ def ensure_start_menu_entry(recorded_target: str = "") -> tuple[bool, str] | Non
     path = start_menu_path()
     if path is None:
         return None
-    if path.is_file() and recorded_target == launch_target()[0]:
+    if not path.is_file():
+        # Absent because the user removed it, or because this is a first run.
+        # Only the first run should create one; recreating a deleted entry
+        # overrides a deliberate choice, which is what the docs promise not to
+        # do. A recorded target means the app has authored shortcuts before.
+        if recorded_target:
+            return None
+    elif recorded_target == target_fingerprint() or not recorded_target:
         return None
-    if path.is_file() and not recorded_target:
-        return None
-    ok, message = _create_shortcut(path)
+    ok, message = _create_shortcut(path, data_dir=data_dir)
     if not ok:
         return False, message
     return True, "Added Claude Profiles to the Start menu."

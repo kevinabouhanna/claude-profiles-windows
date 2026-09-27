@@ -77,10 +77,13 @@ def build_powershell_command(argv: list[str], *, keep_open: bool = True) -> str:
     command = "& " + " ".join(parts)
     if keep_open:
         return command
-    return (
-        f"{command}; if ($LASTEXITCODE -ne 0) "
-        "{ Write-Host ''; Read-Host 'Command failed - press Enter to close' }"
-    )
+    # Statements are separated by a newline, not a semicolon. Windows Terminal
+    # treats an unescaped ";" in its command line as a subcommand separator, so
+    # a semicolon here silently truncates the command at the "&" call and tries
+    # to parse the rest as another wt subcommand. PowerShell accepts a newline
+    # as a statement separator and wt passes it through untouched.
+    pause = "if ($LASTEXITCODE -ne 0) { Read-Host 'Command failed - press Enter to close' }"
+    return f"{command}\n{pause}"
 
 
 class ProcessLauncher:

@@ -36,6 +36,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Which mock situation to demonstrate (implies --mock).",
     )
     parser.add_argument(
+        "--no-windows-integration",
+        action="store_true",
+        help=(
+            "Do not create or update Start menu and Startup shortcuts. Used by "
+            "the build verifier so checking a build cannot alter the user's "
+            "Windows configuration."
+        ),
+    )
+    parser.add_argument(
         "--data-dir",
         default=None,
         help="Override the settings/activity directory (useful for testing).",
@@ -80,7 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     backend, is_mock = build_backend(args)
     settings_service = SettingsService(data_dir=args.data_dir)
 
-    controller = TrayController(app, backend, settings_service, mock_mode=is_mock)
+    controller = TrayController(
+        app,
+        backend,
+        settings_service,
+        mock_mode=is_mock,
+        skip_windows_integration=args.no_windows_integration,
+    )
     controller.start()
 
     if not is_mock and find_cswap() is None:

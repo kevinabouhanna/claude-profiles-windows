@@ -92,6 +92,10 @@ degrade rather than crash.
 - Never log raw stdout or stderr. Route every diagnostic through `redaction.py`.
 - Never read or write `.credentials.json`, `.claude-swap-backup\`, or session files.
 - Keep every new setting **off** by default if it writes anything outside the app's data folder.
+  The one deliberate exception is `launch_at_signin`, which the user asked to default on: a tray
+  app that watches a quota is useless if it has to be started by hand. It is documented in
+  `docs/privacy.md`, visible in the Privacy tab, and writes a single `.lnk` the user can delete.
+  Adding a second exception needs the same justification.
 - Colour tokens must be solid hex, never CSS `rgba()`. QSS accepts both; `QColor` accepts only
   hex and silently yields black for the rest. Use `theme.tokens()` rather than literals.
 - Icons come from `resources/fluent_icons.py`, never from emoji or text glyphs.

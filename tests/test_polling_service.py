@@ -211,15 +211,27 @@ class CountingBackend:
 
 
 @pytest.fixture
-def service(qtbot):
+def service(qtbot, request):
+    """Build a PollingService that is always stopped before the test ends.
+
+    Without this the worker thread outlives the QObject it emits into, which
+    is an access violation rather than a test failure - it takes the whole
+    pytest process down, intermittently.
+    """
     from claude_profiles.services.polling_service import PollingService
+
+    created = []
 
     def _make(interval: float = 5.0):
         backend = CountingBackend()
         svc = PollingService(backend, lambda: interval)
+        created.append(svc)
         return svc, backend
 
-    return _make
+    yield _make
+
+    for svc in created:
+        svc.stop()
 
 
 def test_polling_keeps_going_after_the_first_poll(service, qtbot):
@@ -389,9 +401,10 @@ def test_polling_loop_survives_an_unexpected_error(qtbot):
 
     backend = ExplodingBackend(fail_on=2)
     svc = PollingService(backend, lambda: 5.0)
-    svc.start()
-
-    qtbot.waitUntil(lambda: backend.calls >= 3, timeout=30000)
-    assert backend.calls >= 3
-    assert svc._timer.isActive()
-    svc.stop()
+    try:
+        svc.start()
+        qtbot.waitUntil(lambda: backend.calls >= 3, timeout=30000)
+        assert backend.calls >= 3
+        assert svc._timer.isActive()
+    finally:
+        svc.stop()

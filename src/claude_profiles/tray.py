@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
@@ -72,8 +74,10 @@ class TrayController(QObject):
         settings_service: SettingsService,
         *,
         mock_mode: bool = False,
+        skip_windows_integration: bool = False,
     ) -> None:
         super().__init__()
+        self._skip_windows_integration = skip_windows_integration
         self._app = app
         self._backend = backend
         self._settings_service = settings_service
@@ -199,7 +203,15 @@ class TrayController(QObject):
                 "claude-swap was not found. Install it with: uv tool install claude-swap",
                 level="error",
             )
-        self._sync_windows_integration()
+        # Windows integration spawns PowerShell (0.5-3s cold) and may render
+        # an icon. Doing that inline froze the tray for seconds at sign-in,
+        # exactly when the machine is busiest, so it runs off the GUI thread.
+        # It touches no widgets: the main window does not exist yet.
+        threading.Thread(
+            target=self._sync_windows_integration,
+            name="windows-integration",
+            daemon=True,
+        ).start()
         self.polling.start()
 
     def _current_interval(self) -> float:
@@ -209,9 +221,17 @@ class TrayController(QObject):
         )
 
     def _ui_visible(self) -> bool:
+        """Is anything actually on screen?
+
+        QWidget.isVisible() stays True for a *minimized* window, so relying on
+        it alone pins the faster foreground cadence on forever once the
+        dashboard is minimized - polling every 30s with nothing displayed,
+        which is the drain the adaptive cadence exists to avoid.
+        """
         if self.popup.isVisible():
             return True
-        return self._window is not None and self._window.isVisible()
+        window = self._window
+        return window is not None and window.isVisible() and not window.isMinimized()
 
     @Slot(bool)
     def _on_ui_visibility_changed(self, visible: bool) -> None:
@@ -226,21 +246,28 @@ class TrayController(QObject):
         time the app runs, and a shortcut the user deleted by hand must be
         reflected back into the setting instead of being reported as enabled.
         """
-        target = autostart.launch_target()[0]
+        data_dir = self._settings_service.data_dir
+        target = autostart.target_fingerprint()
         recorded = self._settings.autostart_target
 
-        result = autostart.reconcile(self._settings.launch_at_signin, recorded)
+        if self._skip_windows_integration:
+            return
+
+        result = autostart.reconcile(
+            self._settings.launch_at_signin, recorded, data_dir
+        )
         if result is not None:
             ok, message = result
             self.profiles.log(message, level="info" if ok else "error")
             if ok:
                 self._settings = self._settings_service.update(autostart_target=target)
-            else:
-                self._settings = self._settings_service.update(
-                    launch_at_signin=autostart.is_enabled()
-                )
+            # A failure here is transient - antivirus blocking script COM, a
+            # redirected Start Menu folder, a slow cold PowerShell. Writing the
+            # preference back to False would turn one bad launch into a
+            # permanent opt-out that never retries, so the setting is left
+            # alone and the next start tries again.
 
-        entry = autostart.ensure_start_menu_entry(recorded)
+        entry = autostart.ensure_start_menu_entry(recorded, data_dir)
         if entry is not None:
             ok, message = entry
             self.profiles.log(message, level="info" if ok else "error")
@@ -592,12 +619,10 @@ class TrayController(QObject):
         if self._settings.launch_at_signin != previous.launch_at_signin:
             ok, message = autostart.set_enabled(self._settings.launch_at_signin)
             self.profiles.log(message, level="info" if ok else "error")
-            if not ok:
-                self._settings = self._settings_service.update(
-                    launch_at_signin=autostart.is_enabled()
-                )
-                if self._window:
-                    self._window.load_settings(self._settings)
+            if not ok and self._window:
+                # Reflect reality in the checkbox without persisting it, so the
+                # user sees the failure but the preference survives a retry.
+                self._window.load_settings(self._settings)
 
         if self._settings.hotkeys_enabled != previous.hotkeys_enabled:
             if self._settings.hotkeys_enabled:
