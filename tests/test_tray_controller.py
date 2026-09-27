@@ -250,3 +250,69 @@ def test_an_account_disappearing_is_not_reported_as_a_recovery(tmp_path):
     assert not any("signed in again" in m for m in messages), (
         "announced a sign-in for an account that was removed"
     )
+
+
+# --- the Accounts page must reflect reality -------------------------------
+
+
+def test_accounts_page_populates_when_its_tab_is_selected(controller, qtbot):
+    """Selecting the tab used to populate nothing.
+
+    The page was only ever filled by the tray menu's "Set up accounts...",
+    so opening the dashboard and clicking Accounts showed "Checking...",
+    "Not set up" and "None yet" while both profiles were in fact registered.
+    """
+    from claude_profiles.main_window import TAB_ACCOUNTS, TAB_DASHBOARD
+
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.set_accounts(ctl.profiles.last_accounts)
+    window.update_states(ctl.profiles.states)
+    window.show_tab(TAB_DASHBOARD)
+
+    seen: list[int] = []
+    window.accountsTabShown.connect(lambda: seen.append(1))
+
+    window.show_tab(TAB_ACCOUNTS)
+
+    assert seen, "selecting the Accounts tab must ask for a refresh"
+    assert window.setup_page._accounts_label.text() != "None yet."
+
+
+def test_a_refresh_keeps_the_accounts_page_in_step(controller):
+    """update_states is the common path; the page must ride along with it."""
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.set_accounts(ctl.profiles.last_accounts)
+
+    window.update_states(ctl.profiles.states)
+
+    for state in ctl.profiles.states:
+        badge = window.setup_page._register_status[state.profile.key]
+        assert badge._label.text() == state.account.email
+
+
+def test_a_configured_page_drops_the_step_numbering(controller):
+    """Numbered steps imply unfinished setup."""
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.set_accounts(ctl.profiles.last_accounts)
+    window.update_states(ctl.profiles.states)
+
+    assert "Step 1" not in window.setup_page._signin_step.title()
+    assert "Step 2" not in window.setup_page._register_step.title()
+    assert "connected" in window.setup_page._summary.text()
+
+
+def test_a_fresh_install_still_shows_numbered_steps(controller):
+    ctl = controller("no_accounts")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.set_accounts(ctl.profiles.last_accounts)
+    window.update_states(ctl.profiles.states)
+
+    assert "Step 1" in window.setup_page._signin_step.title()
+    assert "Step 2" in window.setup_page._register_step.title()

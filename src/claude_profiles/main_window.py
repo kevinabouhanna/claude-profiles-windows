@@ -77,6 +77,9 @@ class MainWindow(QMainWindow):
     clearHistoryRequested = Signal()
     openDataFolderRequested = Signal()
     visibilityChanged = Signal(bool)
+    # The Accounts page needs data fetched for it; nothing populated it
+    # when the tab was selected directly, so it sat on "Checking...".
+    accountsTabShown = Signal()
 
     def __init__(
         self,
@@ -91,6 +94,7 @@ class MainWindow(QMainWindow):
         self.resize(880, 660)
         self._loading_settings = False
         self._settings = settings
+        self._accounts = None
         self._cards: dict[str, ProfileCard] = {}
 
         self.setup_page = SetupPage(tuple(s.profile for s in states))
@@ -116,6 +120,7 @@ class MainWindow(QMainWindow):
         )
         self.setCentralWidget(tabs)
         self._tabs = tabs
+        tabs.currentChanged.connect(self._on_tab_changed)
 
     # -- dashboard ----------------------------------------------------------
 
@@ -362,9 +367,21 @@ class MainWindow(QMainWindow):
             card = self._cards.get(state.profile.key)
             if card is not None:
                 card.set_state(state)
+        # Keep the Accounts page in step with every refresh, not only with the
+        # one action that used to populate it.
+        self.setup_page.update_accounts(self._accounts, states)
+
+    def set_accounts(self, accounts) -> None:
+        self._accounts = accounts
 
     def show_tab(self, index: int) -> None:
         self._tabs.setCurrentIndex(index)
+        if index == TAB_ACCOUNTS:
+            self.accountsTabShown.emit()
+
+    def _on_tab_changed(self, index: int) -> None:
+        if index == TAB_ACCOUNTS:
+            self.accountsTabShown.emit()
 
     def set_busy(self, busy: bool) -> None:
         for card in self._cards.values():

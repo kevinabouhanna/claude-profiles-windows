@@ -30,15 +30,18 @@ from PySide6.QtWidgets import (
 )
 
 from ..models import AccountList, ActiveStatus, Profile, ProfileState
+from . import theme
 from .status_badge import StatusBadge
 from .theme import hairline, muted_label_css
 
 
 class StepBox(QGroupBox):
-    """A numbered setup step."""
+    """A setup step. The number is dropped once there is nothing to set up."""
 
     def __init__(self, number: int, title: str, detail: str) -> None:
         super().__init__(f"Step {number} — {title}")
+        self._number = number
+        self._plain_title = title
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         self.detail = QLabel(detail)
@@ -48,6 +51,19 @@ class StepBox(QGroupBox):
         self.body = QVBoxLayout()
         self.body.setSpacing(8)
         layout.addLayout(self.body)
+
+    def set_numbered(self, numbered: bool, title: str | None = None) -> None:
+        """Show or hide the step number.
+
+        Numbered steps imply an unfinished sequence. Once both profiles are
+        connected this page is for changing an account, not completing setup,
+        so the numbering would be misleading.
+        """
+        text = title or self._plain_title
+        self.setTitle(f"Step {self._number} — {text}" if numbered else text)
+
+    def set_detail(self, text: str) -> None:
+        self.detail.setText(text)
 
 
 class SetupPage(QWidget):
@@ -67,13 +83,17 @@ class SetupPage(QWidget):
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(14)
 
-        intro = QLabel(
+        self._intro = QLabel(
             "Claude Profiles does not handle sign-in itself. Claude Code signs "
-            "you in, and claude-swap stores the result — this page just drives "
-            "those two steps in the right order."
+            "you in, and claude-swap stores the result."
         )
-        intro.setWordWrap(True)
-        outer.addWidget(intro)
+        self._intro.setWordWrap(True)
+        outer.addWidget(self._intro)
+
+        self._summary = QLabel("")
+        self._summary.setWordWrap(True)
+        self._summary.setVisible(False)
+        outer.addWidget(self._summary)
 
         outer.addWidget(self._build_current_login())
         outer.addWidget(self._build_sign_in_step())
@@ -129,10 +149,11 @@ class SetupPage(QWidget):
         button.clicked.connect(self.signInRequested.emit)
         step.body.addWidget(button)
         self._sign_in_button = button
+        self._signin_step = step
         return step
 
     def _build_register_step(self) -> QWidget:
-        step = StepBox(
+        self._register_step = step = StepBox(
             2,
             "Store the signed-in account under a profile",
             "This runs cswap add for the address shown above. Check it is the "
@@ -240,8 +261,8 @@ class SetupPage(QWidget):
         if status.managed:
             self._login_badge.apply("Already registered", "ok")
             self._login_hint.setText(
-                "This account is already stored by claude-swap. To add your "
-                "other account, sign in as it first using Step 1."
+                "This account is already stored by claude-swap. To use a "
+                "different one, sign in as it below first."
             )
         else:
             self._login_badge.apply("Not yet registered", "warn")
@@ -281,11 +302,54 @@ class SetupPage(QWidget):
                         label += f"  (alias: {account.alias})"
                     self._alias_account.addItem(label, account.number)
 
+        self._apply_framing(states)
         self._accounts_label.setText("<br>".join(rows) if rows else "None yet.")
         has_accounts = bool(rows)
         self._alias_account.setEnabled(has_accounts)
         self._alias_profile.setEnabled(has_accounts)
         self._alias_button.setEnabled(has_accounts)
+
+    def _apply_framing(self, states: tuple[ProfileState, ...]) -> None:
+        """Present setup steps only when there is setup left to do."""
+        t = theme.tokens()
+        missing = [s for s in states if s.account is None]
+        connected = [s for s in states if s.account is not None]
+
+        if not missing and connected:
+            names = " and ".join(s.profile.name for s in connected)
+            self._summary.setText(
+                f"✓ {names} are connected. You only need this page to point "
+                "a profile at a different Claude account."
+            )
+            self._summary.setStyleSheet(
+                f"font-size: {theme.CAPTION}px; color: {t.success}; font-weight: 600;"
+            )
+            self._summary.setVisible(True)
+            self._intro.setVisible(False)
+            self._signin_step.set_numbered(False, "Sign in as a different account")
+            self._signin_step.set_detail(
+                "Only needed if you want a profile to use another account. Opens "
+                "a terminal and your browser."
+            )
+            self._register_step.set_numbered(False, "Point a profile at the signed-in account")
+            self._register_step.set_detail(
+                "Replaces which account the profile uses. The address shown "
+                "above is the one that will be stored."
+            )
+            return
+
+        if missing:
+            names = " and ".join(s.profile.name for s in missing)
+            self._summary.setText(f"{names} still needs an account.")
+            self._summary.setStyleSheet(
+                f"font-size: {theme.CAPTION}px; color: {t.caution}; font-weight: 600;"
+            )
+            self._summary.setVisible(True)
+        else:
+            self._summary.setVisible(False)
+        self._intro.setVisible(True)
+        self._signin_step.set_numbered(True)
+        self._register_step.set_numbered(True)
 
     def _set_register_enabled(self, enabled: bool) -> None:
         for button in self._register_buttons.values():

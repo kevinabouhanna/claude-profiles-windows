@@ -357,6 +357,7 @@ class TrayController(QObject):
     def _show_window(self, tab: int = TAB_DASHBOARD) -> None:
         window = self._ensure_window()
         window.show_tab(tab)
+        window.set_accounts(self.profiles.last_accounts)
         window.update_states(self.profiles.states)
         window.set_activity(self.profiles.recent_activity())
         self._present(window)
@@ -586,6 +587,7 @@ class TrayController(QObject):
             window.setup_page.assignAliasRequested.connect(self._assign_alias)
             window.setup_page.refreshRequested.connect(self._refresh_setup)
             window.visibilityChanged.connect(self._on_ui_visibility_changed)
+            window.accountsTabShown.connect(self._refresh_setup)
             self._window = window
         return self._window
 
@@ -668,6 +670,7 @@ class TrayController(QObject):
         states = self.profiles.states
         self.popup.update_states(states)
         if self._window is not None:
+            self._window.set_accounts(self.profiles.last_accounts)
             self._window.update_states(states)
         self._update_tray_appearance(states)
         for key, action in self._launch_actions.items():
