@@ -99,8 +99,24 @@ degrade rather than crash.
 ## Packaging
 
 ```powershell
+.venv\Scripts\python.exe tools\make_icon.py
 .venv\Scripts\pyinstaller.exe claude_profiles.spec
+.venv\Scripts\python.exe toolserify_build.py
 ```
 
-Produces `dist\ClaudeProfiles.exe` — a windowed, single-file build. It bundles the UI only; `cswap`
+Produces `dist\Claude Profiles\` — a windowed one-folder build. It bundles the UI only; `cswap`
 remains a separate installation by design.
+
+**Always run `verify_build.py`.** A build can pass every superficial check and still be broken: the
+first packaged build had the right PE subsystem, showed a window, and allocated no console, while
+actually being PyInstaller's traceback dialog sitting on an `ImportError`. The verifier asserts the
+app reached its own code by watching for a write to a fresh data directory, which is only
+reachable once the service layer is up.
+
+Two packaging traps worth remembering:
+
+- `src/claude_profiles/__main__.py` must use **absolute** imports. PyInstaller runs it as
+  `__main__` with no parent package, where a relative import raises immediately.
+- The `.spec` must not draw the icon. `QPixmap` without a `QGuiApplication` aborts the process, and
+  from the build log it looks like a crash at the PYZ stage with no diagnostic. `tools/make_icon.py`
+  does it beforehand instead.

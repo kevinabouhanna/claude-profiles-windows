@@ -49,6 +49,9 @@ class Settings:
     warn_threshold_pct: int = 80
     critical_threshold_pct: int = 95
     hotkeys_enabled: bool = False
+    # Which executable the Windows shortcuts were written for. Lets startup
+    # notice that a better launcher (the installed exe) is now available.
+    autostart_target: str = ""
     profile_aliases: dict[str, str] = field(
         default_factory=lambda: {"personal": "personal", "work": "work"}
     )

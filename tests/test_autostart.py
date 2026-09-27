@@ -106,8 +106,9 @@ def test_reconcile_creates_when_setting_is_on(fake_dirs, fake_creator):
 def test_reconcile_is_a_noop_when_already_correct(fake_dirs, fake_creator):
     autostart.set_enabled(True)
     fake_creator.clear()
+    current = autostart.launch_target()[0]
 
-    assert autostart.reconcile(True) is None
+    assert autostart.reconcile(True, current) is None
     assert fake_creator == []  # nothing rewritten
 
 
@@ -157,14 +158,25 @@ def test_start_menu_entry_is_not_recreated_after_removal(fake_dirs, fake_creator
 # --- launch target ---------------------------------------------------------
 
 
-def test_launch_target_avoids_a_console_window():
-    """pythonw.exe is what keeps a terminal from appearing at sign-in."""
+def test_launch_target_never_picks_a_console_binary():
+    """The point is a launcher that opens no terminal, whichever one is used.
+
+    Asserting the *filename* was the original mistake: uv's venv pythonw.exe is
+    a console-subsystem trampoline, so the name passed while the behaviour was
+    wrong. The PE header is the thing worth checking.
+    """
     target, arguments = autostart.launch_target()
-    if not getattr(sys, "frozen", False):
+    assert target
+
+    windowed = autostart.is_gui_executable(target)
+    if windowed is not None:
+        assert windowed is True, f"{target} would open a console"
+
+    # An exe launches itself; an interpreter needs the module argument.
+    if target.lower().endswith(autostart.EXE_NAME.lower()):
+        assert arguments == ""
+    else:
         assert arguments == "-m claude_profiles"
-        # On Windows the venv ships pythonw.exe beside python.exe.
-        if (Path(sys.executable).with_name("pythonw.exe")).is_file():
-            assert target.lower().endswith("pythonw.exe")
 
 
 def test_frozen_build_points_at_the_executable(monkeypatch):
@@ -173,3 +185,64 @@ def test_frozen_build_points_at_the_executable(monkeypatch):
     target, arguments = autostart.launch_target()
     assert target == r"C:\Apps\ClaudeProfiles.exe"
     assert arguments == ""
+
+
+# --- launcher changes ------------------------------------------------------
+
+
+def test_reconcile_rewrites_a_shortcut_left_on_an_old_launcher(fake_dirs, fake_creator):
+    """Installing the exe must repoint a shortcut made during a source run."""
+    autostart.set_enabled(True)
+    fake_creator.clear()
+
+    result = autostart.reconcile(True, r"C:\old\pythonw.exe")
+
+    assert result is not None and result[0] is True
+    assert fake_creator, "shortcut should have been rewritten"
+
+
+def test_reconcile_leaves_a_matching_shortcut_alone(fake_dirs, fake_creator):
+    autostart.set_enabled(True)
+    fake_creator.clear()
+    current = autostart.launch_target()[0]
+
+    assert autostart.reconcile(True, current) is None
+    assert fake_creator == []
+
+
+def test_start_menu_entry_is_rewritten_when_the_target_changes(fake_dirs, fake_creator):
+    autostart.ensure_start_menu_entry()
+    fake_creator.clear()
+
+    result = autostart.ensure_start_menu_entry(r"C:\old\pythonw.exe")
+
+    assert result is not None and result[0] is True
+    assert fake_creator
+
+
+def test_installed_exe_is_preferred_over_the_interpreter(tmp_path, monkeypatch):
+    """A shortcut should point at the real app, not at a dev interpreter."""
+    install = tmp_path / "Programs" / "Claude Profiles"
+    install.mkdir(parents=True)
+    exe = install / autostart.EXE_NAME
+    exe.write_bytes(b"MZ")
+    monkeypatch.setattr(autostart, "install_dir", lambda: install)
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+
+    target, arguments = autostart.launch_target()
+
+    assert target == str(exe)
+    assert arguments == ""
+
+
+def test_launch_target_rejects_a_console_trampoline(tmp_path, monkeypatch):
+    """uv's venv pythonw.exe is console-subsystem despite the name."""
+    monkeypatch.setattr(autostart, "install_dir", lambda: tmp_path / "absent")
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(autostart, "is_gui_executable", lambda p: False)
+
+    target, _ = autostart.launch_target()
+
+    # With nothing windowed available it still returns something usable
+    # rather than refusing to make a shortcut at all.
+    assert target

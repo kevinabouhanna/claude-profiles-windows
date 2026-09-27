@@ -179,18 +179,45 @@ See [`docs/privacy.md`](docs/privacy.md) for the full data inventory.
 
 ---
 
-## Building a standalone EXE
+## Building and installing the app
 
-A PyInstaller spec is included. Nothing is built automatically.
+The packaged build is what makes this behave like an ordinary Windows application: a windowed
+binary that opens no console, with its own icon, in the usual per-user install location.
 
 ```powershell
 uv pip install -r requirements-dev.txt
-.venv\Scripts\pyinstaller.exe claude_profiles.spec
-# result: dist\ClaudeProfiles.exe
+
+.venv\Scripts\python.exe tools\make_icon.py          # render the .ico first
+.venv\Scripts\pyinstaller.exe claude_profiles.spec    # -> dist\Claude Profiles.venv\Scripts\python.exe toolserify_build.py       # prove it actually runs
+
+Copy-Item "dist\Claude Profiles" "$env:LOCALAPPDATA\Programs\" -Recurse -Force
+& "$env:LOCALAPPDATA\Programs\Claude Profiles\ClaudeProfiles.exe"
 ```
 
-The EXE bundles the UI only — it still requires `cswap` to be installed separately, because
+On first run the app points its own Start menu and Startup shortcuts at wherever it is installed.
+
+Three details are deliberate:
+
+- **One folder, not one file.** A one-file build re-extracts ~45 MB to a temp directory on every
+  launch and leaves a bootloader process beside the real one.
+- **The icon is rendered before the build.** Drawing it needs a `QPixmap`, and creating one without
+  a `QGuiApplication` aborts the process — which inside a `.spec` looks like PyInstaller crashing
+  at the PYZ stage with no error.
+- **`verify_build.py` is not optional.** A broken build can still look healthy from the outside,
+  so it checks the app reached its own code rather than that a process exists.
+
+The build bundles the UI only — it still requires `cswap` to be installed separately, because
 credential handling deliberately stays outside this application.
+
+### Running from source
+
+```powershell
+.venv\Scripts\python.exe -m claude_profiles
+```
+
+Note that a `.venv` created by **uv** ships a `pythonw.exe` that is a *console-subsystem*
+trampoline, so running the app through it opens a terminal despite the name. The app detects this
+and points its shortcuts at the installed build, or a genuinely windowed interpreter, instead.
 
 ## Development
 

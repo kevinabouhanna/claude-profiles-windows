@@ -211,16 +211,21 @@ class TrayController(QObject):
         time the app runs, and a shortcut the user deleted by hand must be
         reflected back into the setting instead of being reported as enabled.
         """
-        result = autostart.reconcile(self._settings.launch_at_signin)
+        target = autostart.launch_target()[0]
+        recorded = self._settings.autostart_target
+
+        result = autostart.reconcile(self._settings.launch_at_signin, recorded)
         if result is not None:
             ok, message = result
             self.profiles.log(message, level="info" if ok else "error")
-            if not ok:
+            if ok:
+                self._settings = self._settings_service.update(autostart_target=target)
+            else:
                 self._settings = self._settings_service.update(
                     launch_at_signin=autostart.is_enabled()
                 )
 
-        entry = autostart.ensure_start_menu_entry()
+        entry = autostart.ensure_start_menu_entry(recorded)
         if entry is not None:
             ok, message = entry
             self.profiles.log(message, level="info" if ok else "error")

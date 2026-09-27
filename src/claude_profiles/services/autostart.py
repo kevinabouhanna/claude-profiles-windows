@@ -18,7 +18,56 @@ from pathlib import Path
 
 SHORTCUT_NAME = "Claude Profiles.lnk"
 APP_NAME = "Claude Profiles"
+EXE_NAME = "ClaudeProfiles.exe"
 _CREATE_NO_WINDOW = 0x08000000
+
+# PE subsystem values. 2 is a windowed binary, 3 a console one.
+_SUBSYSTEM_GUI = 2
+_SUBSYSTEM_CONSOLE = 3
+
+
+def is_gui_executable(path: str | Path) -> bool | None:
+    """Read a PE header and report whether the binary is windowed.
+
+    This matters because a name is not a promise: the ``pythonw.exe`` inside a
+    uv-created virtualenv is a trampoline compiled for the *console* subsystem,
+    so launching through it opens a terminal despite the "w". Returns None when
+    the file cannot be parsed.
+    """
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return None
+    try:
+        pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+        if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+            return None
+        subsystem = int.from_bytes(
+            data[pe_offset + 24 + 68 : pe_offset + 24 + 70], "little"
+        )
+    except (IndexError, ValueError):
+        return None
+    if subsystem not in (_SUBSYSTEM_GUI, _SUBSYSTEM_CONSOLE):
+        return None
+    return subsystem == _SUBSYSTEM_GUI
+
+
+def install_dir() -> Path | None:
+    """Where a user-scoped Windows application installs itself."""
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return None
+    return Path(base) / "Programs" / APP_NAME
+
+
+def installed_exe() -> Path | None:
+    directory = install_dir()
+    if directory is None:
+        return None
+    candidate = directory / EXE_NAME
+    return candidate if candidate.is_file() else None
 
 
 # -- locations -------------------------------------------------------------
@@ -54,15 +103,32 @@ def start_menu_path() -> Path | None:
 def launch_target() -> tuple[str, str]:
     """``(target, arguments)`` for a shortcut.
 
-    A frozen build points at the exe. Running from source points at
-    ``pythonw.exe`` - the windowed interpreter - so no console window appears.
+    Preference order, all chosen so the app starts without a console:
+
+    1. This process, when it is already the frozen build.
+    2. An installed ``ClaudeProfiles.exe``, so a shortcut made during a source
+       run still points at the real application.
+    3. A genuinely windowed interpreter - one whose PE header says so, not one
+       merely named ``pythonw.exe``.
     """
     if getattr(sys, "frozen", False):
         return sys.executable, ""
+
+    exe = installed_exe()
+    if exe is not None:
+        return str(exe), ""
+
     interpreter = Path(sys.executable)
     windowed = interpreter.with_name("pythonw.exe")
-    target = str(windowed if windowed.is_file() else interpreter)
-    return target, "-m claude_profiles"
+    if windowed.is_file() and is_gui_executable(windowed):
+        return str(windowed), "-m claude_profiles"
+    # Fall back to the base interpreter's pythonw when the local one is a
+    # console trampoline; failing that, accept the console rather than refuse
+    # to create a shortcut at all.
+    base = Path(getattr(sys, "_base_executable", sys.executable)).with_name("pythonw.exe")
+    if base.is_file() and is_gui_executable(base):
+        return str(base), "-m claude_profiles"
+    return str(windowed if windowed.is_file() else interpreter), "-m claude_profiles"
 
 
 def icon_path() -> str:
@@ -163,16 +229,22 @@ def set_enabled(enabled: bool) -> tuple[bool, str]:
     return True, "Claude Profiles will start when you sign in to Windows."
 
 
-def reconcile(desired: bool) -> tuple[bool, str] | None:
+def reconcile(desired: bool, recorded_target: str = "") -> tuple[bool, str] | None:
     """Make the filesystem match the setting.
 
     Called at startup so a default-on preference actually takes effect on a
-    fresh install, and so a shortcut deleted by hand is not silently reported
-    as still enabled. Returns None when nothing needed doing.
+    fresh install, so a shortcut deleted by hand is not silently reported as
+    still enabled, and so a shortcut left pointing at an old launcher is
+    rewritten once a better one exists. Returns None when nothing needs doing.
     """
-    if is_enabled() == desired:
-        return None
-    return set_enabled(desired)
+    current = launch_target()[0]
+    if desired:
+        if is_enabled() and recorded_target == current:
+            return None
+        return set_enabled(True)
+    if is_enabled():
+        return set_enabled(False)
+    return None
 
 
 # -- Start menu entry ------------------------------------------------------
@@ -183,14 +255,20 @@ def has_start_menu_entry() -> bool:
     return bool(path and path.is_file())
 
 
-def ensure_start_menu_entry() -> tuple[bool, str] | None:
+def ensure_start_menu_entry(recorded_target: str = "") -> tuple[bool, str] | None:
     """Put the app in the Start menu so it is launchable like any other app.
 
-    Created once and then left alone; if the user deletes it, it is not
-    recreated behind their back.
+    Created once and then left alone, except when the launch target changes -
+    a Start menu entry pointing at a launcher that no longer exists is worse
+    than none. If the user deletes the entry it is not recreated behind their
+    back.
     """
     path = start_menu_path()
-    if path is None or path.is_file():
+    if path is None:
+        return None
+    if path.is_file() and recorded_target == launch_target()[0]:
+        return None
+    if path.is_file() and not recorded_target:
         return None
     ok, message = _create_shortcut(path)
     if not ok:
