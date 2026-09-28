@@ -1,12 +1,48 @@
+# Python
 .venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.eggs/
+.python-version
+
+# Build output (PyInstaller, hatch)
 build/
 dist/
+*.ico
+!docs/**/*.ico
+
+# Tooling caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Coverage - the data file embeds absolute paths, which include your Windows username
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Secrets and local environment - never commit these
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+.credentials.json
+.claude/
+.claude-swap-backup/
 
 # Never commit anything that could carry account data.
 *.log
