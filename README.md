@@ -7,11 +7,14 @@
 **Run two Claude Code accounts on Windows without the log-out/log-in dance.**
 See both accounts' quota at a glance, switch in one click, or open a terminal bound to either one.
 
+[![Latest release](https://img.shields.io/github/v/release/kevinabouhanna/claude-profiles-windows?label=download&color=0078D4)](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest)
+[![CI](https://github.com/kevinabouhanna/claude-profiles-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinabouhanna/claude-profiles-windows/actions/workflows/ci.yml)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)
-![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/UI-PySide6%20%2F%20Qt-41CD52?logo=qt&logoColor=white)
 ![Local only](https://img.shields.io/badge/network-none-2ea44f)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+**[⬇️ Download the installer for Windows](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest)**
 
 <img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing a Personal and a Work account side by side with 5-hour, 7-day and per-model usage bars" width="760">
 
@@ -99,8 +102,7 @@ details.
 
 ### Prerequisites
 
-- Windows 10 or 11
-- Python 3.12 or newer
+- Windows 10 or 11 (64-bit)
 - [uv](https://docs.astral.sh/uv/) (or pipx) to install claude-swap
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code), signed in to at least one account
 
@@ -114,7 +116,35 @@ cswap --version
 
 If `cswap` is not found afterwards, make sure `%USERPROFILE%\.local\bin` is on your `PATH`.
 
-### 2. Get Claude Profiles running
+### 2. Install Claude Profiles
+
+Download **`ClaudeProfiles-Setup-X.Y.Z.exe`** from the
+[latest release](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest) and run it.
+
+- It installs for your user only, to `%LOCALAPPDATA%\Programs\Claude Profiles`. **No administrator
+  rights are needed.**
+- It adds a Start menu entry and an uninstaller under *Settings > Apps*.
+- To upgrade, run a newer installer. It closes the running app and replaces it in place.
+
+The tray icon appears in the notification area. Left-click it for the compact view.
+
+> **"Windows protected your PC"?** The installer is not code-signed yet, so SmartScreen warns about
+> it. Choose **More info**, then **Run anyway**. Every release is built by GitHub Actions from the
+> tagged source, with SHA-256 checksums and a
+> [build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+> you can check yourself:
+>
+> ```powershell
+> gh attestation verify ClaudeProfiles-Setup-0.1.0.exe --repo kevinabouhanna/claude-profiles-windows
+> ```
+
+<details>
+<summary>Prefer not to install? Use the portable zip or run from source</summary>
+
+**Portable:** download `ClaudeProfiles-X.Y.Z-win-x64-portable.zip` from the same release, unzip it
+anywhere, and run `ClaudeProfiles.exe`.
+
+**From source** (Python 3.12 or newer):
 
 ```powershell
 git clone https://github.com/kevinabouhanna/claude-profiles-windows.git
@@ -125,11 +155,10 @@ uv pip install -e .
 
 .venv\Scripts\python.exe -m claude_profiles
 ```
+</details>
 
-The tray icon appears in the notification area. Left-click it for the compact view.
-
-> **Just want a look first?** Run `.venv\Scripts\python.exe -m claude_profiles --mock` to explore
-> everything with synthetic data. No accounts are read or changed.
+> **Just want a look first?** Run `ClaudeProfiles.exe --mock` (or `python -m claude_profiles --mock`
+> from source) to explore everything with synthetic data. No accounts are read or changed.
 
 Windows 11 hides new tray icons by default. To keep this one visible, go to **Settings >
 Personalisation > Taskbar > Other system tray icons** and switch on *Claude Profiles*.
@@ -168,8 +197,8 @@ addresses are read from `cswap list --json` at runtime and never written into so
 ### Demo scenarios
 
 ```powershell
-.venv\Scripts\python.exe -m claude_profiles --mock
-.venv\Scripts\python.exe -m claude_profiles --scenario work_reauth
+& "$env:LOCALAPPDATA\Programs\Claude Profiles\ClaudeProfiles.exe" --mock
+& "$env:LOCALAPPDATA\Programs\Claude Profiles\ClaudeProfiles.exe" --scenario work_reauth
 ```
 
 Scenarios: `healthy`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usage`, `no_accounts`,
@@ -236,24 +265,38 @@ history** buttons. See [`docs/privacy.md`](docs/privacy.md) for the full data in
 
 ---
 
-## Building a standalone app
+## Uninstalling
+
+Use *Settings > Apps > Installed apps > Claude Profiles > Uninstall*. It stops the app and removes
+the program, its Start menu and Startup shortcuts, and its icon cache. Your preferences in
+`%LOCALAPPDATA%\ClaudeProfiles` are kept. Delete that folder, or use **Clear local activity
+history** on the Privacy page first, if you want them gone too. claude-swap and your registered
+accounts are not touched.
+
+---
+
+## Releases and versioning
+
+Claude Profiles uses [Semantic Versioning](https://semver.org/), and every release is listed in
+[`CHANGELOG.md`](CHANGELOG.md). Pushing a `vX.Y.Z` tag makes GitHub Actions test, build, verify,
+attest and publish the installer and portable zip. No release binary is built on a personal
+machine. The full process is in [`docs/releasing.md`](docs/releasing.md).
+
+## Building it yourself
 
 The packaged build behaves like an ordinary Windows application: a windowed binary with its own
-icon that never opens a console.
+icon and version details that never opens a console. With [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+installed (`winget install JRSoftware.InnoSetup`):
 
 ```powershell
 uv pip install -r requirements-dev.txt
-
-.venv\Scripts\python.exe tools\make_icon.py           # render the .ico first
-.venv\Scripts\pyinstaller.exe claude_profiles.spec     # -> dist\Claude Profiles\
-.venv\Scripts\python.exe tools\verify_build.py        # prove the build actually runs
-
-Copy-Item "dist\Claude Profiles" "$env:LOCALAPPDATA\Programs\" -Recurse -Force
-& "$env:LOCALAPPDATA\Programs\Claude Profiles\ClaudeProfiles.exe"
+powershell -ExecutionPolicy Bypass -File tools\build_release.ps1
+# -> release\ClaudeProfiles-Setup-X.Y.Z.exe, the portable zip, and SHA256SUMS.txt
 ```
 
-On first run the app points its Start menu and Startup shortcuts at wherever it is installed. The
-build bundles the UI only, so you still need `cswap` installed separately, because credential
+The script renders the icon, freezes the app with PyInstaller, runs `tools\verify_build.py` against
+the result, then packs the zip and compiles [`installer/ClaudeProfiles.iss`](installer/ClaudeProfiles.iss).
+The build bundles the UI only, so you still need `cswap` installed separately, because credential
 handling deliberately stays outside this application.
 
 <details>

@@ -1,0 +1,131 @@
+name: Release
+
+# Pushing a tag like v1.2.3 builds, verifies and publishes a GitHub Release.
+# Running it by hand (Actions > Release > Run workflow) is a dry run: the same
+# build, uploaded as a workflow artifact, with nothing published.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write       # build provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Check the tag matches the code's version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python tools/release.py check-tag "$env:TAG"
+
+      - name: Check the changelog describes this version
+        run: python tools/release.py notes > $null
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip install -e .
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Install Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --yes --no-progress
+          }
+
+      - name: Build installer and portable zip
+        run: ./tools/build_release.ps1 -Python python
+
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            release/*.exe
+            release/*.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+
+      - name: Write release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="${TAG#v}"
+          {
+            python3 tools/release.py notes "$version"
+            cat <<EOF
+
+          ## Download
+
+          | File | What it is |
+          |---|---|
+          | **ClaudeProfiles-Setup-${version}.exe** | Installer. Per-user, no administrator rights needed. Adds a Start menu entry and an uninstaller. |
+          | ClaudeProfiles-${version}-win-x64-portable.zip | The same app, unzipped anywhere and run from \`ClaudeProfiles.exe\`. |
+          | SHA256SUMS.txt | Checksums for both. |
+
+          Claude Profiles needs [claude-swap](https://github.com/realiti4/claude-swap) installed separately: \`uv tool install claude-swap\`.
+
+          > The binaries are not code-signed, so Windows SmartScreen may say it "protected your PC". Choose **More info** and then **Run anyway**. Every file here was built by GitHub Actions from the tagged source, and you can prove it:
+          >
+          > \`\`\`
+          > gh attestation verify ClaudeProfiles-Setup-${version}.exe --repo ${REPO}
+          > \`\`\`
+          EOF
+          } > "$RUNNER_TEMP/notes.md"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" release/* \
+            --verify-tag \
+            --title "Claude Profiles ${TAG#v}" \
+            --notes-file "$RUNNER_TEMP/notes.md"

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -140,7 +141,12 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         check_subsystem(exe)
-        check_starts_and_works(exe, Path(exe.parent) / "_verify_data")
+        # A temp folder, not one beside the exe: that folder is what gets
+        # zipped and installed, so anything written there would ship.
+        with tempfile.TemporaryDirectory(
+            prefix="claude-profiles-verify-", ignore_cleanup_errors=True
+        ) as data_dir:
+            check_starts_and_works(exe, Path(data_dir))
     except Failure as exc:
         print(f"  FAIL  {exc}")
         return 1

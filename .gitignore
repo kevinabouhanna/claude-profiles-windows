@@ -8,9 +8,10 @@ __pycache__/
 .eggs/
 .python-version
 
-# Build output (PyInstaller, hatch)
+# Build output (PyInstaller, hatch, tools/build_release.ps1)
 build/
 dist/
+release/
 *.ico
 !docs/**/*.ico
 

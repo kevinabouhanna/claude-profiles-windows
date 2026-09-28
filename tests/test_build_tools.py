@@ -90,3 +90,14 @@ def test_subsystem_check_accepts_the_apps_own_verdict(verify_build, tmp_path):
 
     with pytest.raises(verify_build.Failure, match="console"):
         verify_build.check_subsystem(exe)
+
+
+def test_verification_writes_nothing_into_the_build(verify_build):
+    """dist\Claude Profiles is what gets zipped and installed.
+
+    The verifier used to leave a ``_verify_data`` folder beside the exe, which
+    would then have shipped inside every release.
+    """
+    source = (ROOT / "tools" / "verify_build.py").read_text(encoding="utf-8")
+    assert "exe.parent" not in source
+    assert "TemporaryDirectory" in source

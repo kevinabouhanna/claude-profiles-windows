@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-profiles"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Private, local-only Windows tray app for switching between and monitoring Claude Code accounts via claude-swap."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,15 +17,22 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
 ]
 
 [project.urls]
 Homepage = "https://github.com/kevinabouhanna/claude-profiles-windows"
 Issues = "https://github.com/kevinabouhanna/claude-profiles-windows/issues"
+Releases = "https://github.com/kevinabouhanna/claude-profiles-windows/releases"
+Changelog = "https://github.com/kevinabouhanna/claude-profiles-windows/blob/main/CHANGELOG.md"
 
 [project.scripts]
 claude-profiles = "claude_profiles.app:main"
+
+[tool.hatch.version]
+path = "src/claude_profiles/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_profiles"]

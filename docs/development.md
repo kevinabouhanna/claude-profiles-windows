@@ -145,11 +145,14 @@ degrade rather than crash.
 ```powershell
 .venv\Scripts\python.exe tools\make_icon.py
 .venv\Scripts\pyinstaller.exe claude_profiles.spec
-.venv\Scripts\python.exe toolserify_build.py
+.venv\Scripts\python.exe tools\verify_build.py
 ```
 
 Produces `dist\Claude Profiles\` — a windowed one-folder build. It bundles the UI only; `cswap`
 remains a separate installation by design.
+
+`tools\build_release.ps1` runs those three steps and then builds the installer, portable zip and
+checksums; see [`releasing.md`](releasing.md).
 
 **Always run `verify_build.py`.** A build can pass every superficial check and still be broken: the
 first packaged build had the right PE subsystem, showed a window, and allocated no console, while

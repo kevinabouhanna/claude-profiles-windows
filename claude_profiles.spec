@@ -1,7 +1,7 @@
 # PyInstaller spec for Claude Profiles.
 #
 # Build with:  pyinstaller claude_profiles.spec
-# Result:      dist/ClaudeProfiles.exe
+# Result:      dist/Claude Profiles/ClaudeProfiles.exe
 #
 # console=False is the point of this build. A venv's pythonw.exe created by uv
 # is a trampoline compiled for the *console* subsystem, so launching the app
@@ -17,6 +17,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(SPECPATH) / "src"))
 
 from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
+from PyInstaller.utils.win32.versioninfo import (  # noqa: E402
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
+
+from claude_profiles import __version__  # noqa: E402
 
 # Qt modules this app does not use; excluding them roughly halves the output.
 EXCLUDES = [
@@ -61,6 +72,34 @@ def _app_icon() -> str | None:
     return str(target) if target.is_file() else None
 
 
+def _version_resource() -> VSVersionInfo:
+    """What Explorer shows under Properties > Details.
+
+    Read from the package's single ``__version__`` so the exe can never claim
+    a different version from the app's own About text or the installer.
+    """
+    numbers = tuple(int(part) for part in __version__.split(".")) + (0,)
+    strings = {
+        "CompanyName": "Kevin Abouhanna",
+        "FileDescription": "Claude Profiles",
+        "FileVersion": __version__,
+        "InternalName": "ClaudeProfiles",
+        "LegalCopyright": "Copyright (c) 2026 Kevin Abouhanna. MIT License.",
+        "OriginalFilename": "ClaudeProfiles.exe",
+        "ProductName": "Claude Profiles",
+        "ProductVersion": __version__,
+    }
+    return VSVersionInfo(
+        ffi=FixedFileInfo(filevers=numbers, prodvers=numbers),
+        kids=[
+            StringFileInfo(
+                [StringTable("040904B0", [StringStruct(k, v) for k, v in strings.items()])]
+            ),
+            VarFileInfo([VarStruct("Translation", [0x0409, 1200])]),
+        ],
+    )
+
+
 a = Analysis(
     ["src/claude_profiles/__main__.py"],
     pathex=["src"],
@@ -94,6 +133,7 @@ exe = EXE(
     console=False,  # tray app: GUI subsystem, so no console is ever allocated
     disable_windowed_traceback=False,
     icon=_app_icon(),
+    version=_version_resource(),
 )
 
 coll = COLLECT(
