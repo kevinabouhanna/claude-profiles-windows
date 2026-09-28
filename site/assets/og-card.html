@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!--
+  Source of og.png, the 1200x630 link preview. Change one, change the other.
+  Re-render from the repository root with:
+
+  "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --hide-scrollbars
+    --window-size=1200,630 --screenshot="%CD%\site\assets\og.png" "file:///%CD%/site/assets/og-card.html"
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude Profiles link preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAF9F5;
+    --paper-3: #E8E6DC;
+    --ink: #141413;
+    --ink-2: #3D3D3A;
+    --accent: #D97757;
+    --terminal-dim: #8C8A80;
+    --yellow: #E8B23A;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background:
+      linear-gradient(var(--paper-3) 1px, transparent 1px) 0 0 / 30px 30px,
+      linear-gradient(90deg, var(--paper-3) 1px, transparent 1px) 0 0 / 30px 30px,
+      var(--paper);
+    color: var(--ink);
+    font-family: Inter, sans-serif;
+    padding: 56px 64px;
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 48px;
+    align-items: center;
+    border: 12px solid var(--ink);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; font: 800 30px/1 "JetBrains Mono", monospace; }
+  .brand img { width: 56px; height: 56px; border: 3px solid var(--ink); }
+  h1 { margin-top: 36px; font: 800 58px/1.06 "JetBrains Mono", monospace; letter-spacing: -0.03em; }
+  h1 span { background: var(--accent); padding: 0 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  p { margin-top: 26px; font: 500 24px/1.4 Inter, sans-serif; color: var(--ink-2); }
+  .terminal {
+    background: var(--ink);
+    color: var(--paper);
+    border: 4px solid var(--ink);
+    box-shadow: 14px 14px 0 var(--accent);
+    font: 700 21px/1.9 "JetBrains Mono", monospace;
+    padding: 22px 24px;
+    white-space: pre;
+  }
+  .dim { color: var(--terminal-dim); }
+  .acc { color: var(--accent); }
+  .warn { color: var(--yellow); }
+</style>
+</head>
+<body>
+  <div>
+    <div class="brand"><img src="logo-256.png" alt="">Claude Profiles</div>
+    <h1>Every Claude Code account, <span>one tray icon.</span></h1>
+    <p>See usage at a glance. Switch in one click. Free for Windows.</p>
+  </div>
+<div class="terminal"><span class="dim">#  account       5h</span>
+1  personal      42% <span class="acc">■</span>
+2  work          <span class="warn">74%</span>
+3  side-project  12%
+4  client-acme   <span class="warn">91%</span></div>
+</body>
+</html>

@@ -7,6 +7,7 @@
     reproduced on any Windows machine with Python and Inno Setup 6.
 
       release\ClaudeProfiles-Setup-X.Y.Z.exe
+      release\ClaudeProfiles-Setup.exe        (the same file, for a permanent link)
       release\ClaudeProfiles-X.Y.Z-win-x64-portable.zip
       release\SHA256SUMS.txt
 
@@ -78,6 +79,11 @@ Compress-Archive -Path $AppDir -DestinationPath $Zip -CompressionLevel Optimal
 
 Step "Compiling the installer"
 Invoke-Checked $Iscc @("/Q", "/DAppVersion=$Version", "installer\ClaudeProfiles.iss")
+
+# The same installer under a name that never changes, so
+# releases/latest/download/ClaudeProfiles-Setup.exe always works - the
+# website's download buttons depend on it.
+Copy-Item (Join-Path $Out "ClaudeProfiles-Setup-$Version.exe") (Join-Path $Out "ClaudeProfiles-Setup.exe")
 
 Step "Writing checksums"
 $Sums = Get-ChildItem $Out -File | Sort-Object Name | ForEach-Object {

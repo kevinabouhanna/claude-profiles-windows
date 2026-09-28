@@ -1,0 +1,28 @@
+# Claude Profiles
+
+> A free, open source Windows tray app for people who use more than one Claude Code account. It shows every account's 5-hour and 7-day usage at once, switches the account Claude Code uses in one click, and opens terminals bound to any account. It is a graphical front end for claude-swap and never handles credentials itself.
+
+## What it solves
+
+- Claude Code is signed in to one account at a time. Changing account normally means /logout, /login and a browser round trip.
+- Usage limits (5-hour and weekly) are checked one account at a time, so people hit a limit mid-task without knowing which other account has room.
+- Running two accounts at once in separate terminals is awkward without a tool.
+
+## Key facts
+
+- Platform: Windows 10 and 11, 64-bit. Not available for macOS or Linux.
+- Requires: Claude Code and claude-swap (https://github.com/realiti4/claude-swap), installed with `uv tool install claude-swap`.
+- Number of accounts: any. Every account registered with claude-swap gets a card, colour, tray menu entry and name. Keyboard shortcuts Ctrl+Alt+1 to Ctrl+Alt+9 cover the first nine.
+- Switching changes the account Claude Code uses for new sessions. It does not sign the browser in or out of claude.ai, and closes nothing that is running.
+- Privacy: no network code, no telemetry, never reads or writes Claude credential files. Only a short allowlist of cswap commands can run.
+- Install: a per-user installer (no administrator rights) or a portable zip, from GitHub Releases. Builds are made by GitHub Actions with SHA-256 checksums and build provenance attestations. The installer is not code-signed, so SmartScreen may warn.
+- Licence: MIT. Independent project, not affiliated with Anthropic.
+
+## Links
+
+- Website: https://kevinabouhanna.github.io/claude-profiles-windows/
+- Source: https://github.com/kevinabouhanna/claude-profiles-windows
+- Latest release: https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest
+- Installer: https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe
+- Changelog: https://github.com/kevinabouhanna/claude-profiles-windows/blob/main/CHANGELOG.md
+- Privacy details: https://github.com/kevinabouhanna/claude-profiles-windows/blob/main/docs/privacy.md

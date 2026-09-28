@@ -107,6 +107,7 @@ jobs:
           | File | What it is |
           |---|---|
           | **ClaudeProfiles-Setup-${version}.exe** | Installer. Per-user, no administrator rights needed. Adds a Start menu entry and an uninstaller. |
+          | ClaudeProfiles-Setup.exe | The same installer under a name that never changes, for permanent download links. |
           | ClaudeProfiles-${version}-win-x64-portable.zip | The same app, unzipped anywhere and run from \`ClaudeProfiles.exe\`. |
           | SHA256SUMS.txt | Checksums for both. |
 

@@ -14,7 +14,7 @@ See every account's quota at a glance, switch in one click, or open a terminal b
 ![Local only](https://img.shields.io/badge/network-none-2ea44f)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**[⬇️ Download the installer for Windows](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest)**
+**[⬇️ Download the installer for Windows](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe)** · [Website](https://kevinabouhanna.github.io/claude-profiles-windows/) · [All releases](https://github.com/kevinabouhanna/claude-profiles-windows/releases)
 
 <img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing three accounts - Personal, Work and Side Project - each with 5-hour, 7-day and per-model usage bars" width="760">
 
