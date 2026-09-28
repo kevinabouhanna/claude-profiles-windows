@@ -11,8 +11,11 @@ part belongs in a GUI:
 
 Because ``add`` captures whichever account Claude Code is currently signed in
 as, the page always shows that address first. Clicking "register" without
-knowing who you are signed in as is how you end up with Work stored under the
-Personal alias, so the identity is shown directly above the button.
+knowing who you are signed in as is how you end up with one account stored
+under another's name, so the identity is shown directly above the button.
+
+There is no fixed list of profiles: every account registered here becomes one,
+named by the alias typed in.
 """
 
 from __future__ import annotations
@@ -22,19 +25,22 @@ import html
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from ..models import AccountList, ActiveStatus, Profile, ProfileState
+from ..models import AccountList, ActiveStatus, ProfileState, profile_name
+from ..services.profile_service import ProfileService
 from . import theme
 from .status_badge import StatusBadge
-from .theme import hairline, muted_label_css
+from .theme import muted_label_css
+
+ALIAS_PLACEHOLDER = "e.g. personal, work, client-acme"
 
 
 class StepBox(QGroupBox):
@@ -57,9 +63,9 @@ class StepBox(QGroupBox):
     def set_numbered(self, numbered: bool, title: str | None = None) -> None:
         """Show or hide the step number.
 
-        Numbered steps imply an unfinished sequence. Once both profiles are
-        connected this page is for changing an account, not completing setup,
-        so the numbering would be misleading.
+        Numbered steps imply an unfinished sequence. Once an account is
+        connected this page is for adding or changing one, not completing
+        setup, so the numbering would be misleading.
         """
         text = title or self._plain_title
         self.setTitle(f"Step {self._number} — {text}" if numbered else text)
@@ -69,17 +75,18 @@ class StepBox(QGroupBox):
 
 
 class SetupPage(QWidget):
-    """Guides the user through registering both profiles."""
+    """Guides the user through registering as many accounts as they have."""
 
     signInRequested = Signal()
-    registerRequested = Signal(str)  # profile key
-    assignAliasRequested = Signal(int, str)  # account number, profile key
+    registerRequested = Signal(str)  # alias
+    assignAliasRequested = Signal(int, str)  # account number, alias
     refreshRequested = Signal()
 
-    def __init__(self, profiles: tuple[Profile, ...], parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._profiles = profiles
         self._accounts: AccountList | None = None
+        self._login: ActiveStatus | None = None
+        self._busy = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -157,49 +164,31 @@ class SetupPage(QWidget):
     def _build_register_step(self) -> QWidget:
         self._register_step = step = StepBox(
             2,
-            "Store the signed-in account under a profile",
-            "This runs cswap add for the address shown above. Check it is the "
-            "right one before choosing a profile.",
+            "Name it and register it",
+            "This runs cswap add for the address shown above, under the name you "
+            "choose. Check the address before registering.",
         )
-        self._register_buttons: dict[str, QPushButton] = {}
-        self._register_status: dict[str, StatusBadge] = {}
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self._alias_input = QLineEdit()
+        self._alias_input.setPlaceholderText(ALIAS_PLACEHOLDER)
+        self._alias_input.setMaxLength(32)
+        self._alias_input.textChanged.connect(self._sync_register_button)
+        self._alias_input.returnPressed.connect(self._emit_register)
+        row.addWidget(self._alias_input, 1)
 
-        for profile in self._profiles:
-            row = QHBoxLayout()
-            row.setSpacing(8)
+        self._register_button = QPushButton("Register")
+        self._register_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._register_button.setStyleSheet(theme.accent_button_css())
+        self._register_button.clicked.connect(self._emit_register)
+        row.addWidget(self._register_button)
+        step.body.addLayout(row)
 
-            swatch = QFrame()
-            swatch.setFixedSize(4, 26)
-            swatch.setStyleSheet(f"background-color: {profile.color}; border-radius: 2px;")
-            row.addWidget(swatch)
-
-            name = QLabel(profile.name)
-            name.setStyleSheet("font-weight: 600;")
-            name.setFixedWidth(70)
-            row.addWidget(name)
-
-            badge = StatusBadge("Not set up", "muted")
-            self._register_status[profile.key] = badge
-            row.addWidget(badge)
-            row.addStretch(1)
-
-            button = QPushButton(f"Register as {profile.name}")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setStyleSheet(
-                f"QPushButton {{ background-color: {profile.color}; color: white;"
-                "border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; }"
-                f"QPushButton:disabled {{ background-color: {hairline(self)}; }}"
-            )
-            button.clicked.connect(
-                lambda _=False, key=profile.key: self.registerRequested.emit(key)
-            )
-            self._register_buttons[profile.key] = button
-            row.addWidget(button)
-
-            container = QWidget()
-            container.setLayout(row)
-            step.body.addWidget(container)
-
+        self._alias_hint = QLabel("")
+        self._alias_hint.setWordWrap(True)
+        self._alias_hint.setStyleSheet(muted_label_css(self, 12))
+        step.body.addWidget(self._alias_hint)
+        self._sync_register_button()
         return step
 
     def _build_existing_accounts(self) -> QWidget:
@@ -213,8 +202,8 @@ class SetupPage(QWidget):
         layout.addWidget(self._accounts_label)
 
         note = QLabel(
-            "If an account is already registered but carries the wrong alias, "
-            "point it at a profile here instead of adding it again."
+            "To rename an account, or give a name to one registered without "
+            "one, pick it here rather than adding it again."
         )
         note.setWordWrap(True)
         note.setStyleSheet(muted_label_css(self, 12))
@@ -228,23 +217,53 @@ class SetupPage(QWidget):
 
         row.addWidget(QLabel("→"))
 
-        self._alias_profile = QComboBox()
-        for profile in self._profiles:
-            self._alias_profile.addItem(profile.name, profile.key)
-        row.addWidget(self._alias_profile)
+        self._rename_input = QLineEdit()
+        self._rename_input.setPlaceholderText("new name")
+        self._rename_input.setMaxLength(32)
+        self._rename_input.returnPressed.connect(self._emit_alias)
+        row.addWidget(self._rename_input)
 
-        self._alias_button = QPushButton("Set alias")
+        self._alias_button = QPushButton("Rename")
         self._alias_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._alias_button.clicked.connect(self._emit_alias)
         row.addWidget(self._alias_button)
         layout.addLayout(row)
         return box
 
+    def _typed_alias(self) -> str:
+        return self._alias_input.text().strip().lower()
+
+    def _sync_register_button(self, *_args) -> None:
+        alias = self._typed_alias()
+        problem = ProfileService.alias_problem(alias) if alias else None
+        signed_in = bool(self._login and self._login.email)
+        self._register_button.setEnabled(
+            signed_in and bool(alias) and problem is None and not self._busy
+        )
+        if problem:
+            self._alias_hint.setText(problem)
+        elif alias:
+            self._alias_hint.setText(f"It will appear as {profile_name(alias, None)}.")
+        else:
+            self._alias_hint.setText(
+                "Any short name works. It becomes the account's label here and "
+                "its alias in claude-swap."
+            )
+
+    def _emit_register(self) -> None:
+        if self._register_button.isEnabled():
+            self.registerRequested.emit(self._typed_alias())
+
     def _emit_alias(self) -> None:
         number = self._alias_account.currentData()
-        key = self._alias_profile.currentData()
-        if number is not None and key:
-            self.assignAliasRequested.emit(int(number), str(key))
+        alias = self._rename_input.text().strip().lower()
+        if number is None:
+            return
+        problem = ProfileService.alias_problem(alias)
+        if problem:
+            self.set_result(problem, ok=False)
+            return
+        self.assignAliasRequested.emit(int(number), alias)
 
     # -- updates ------------------------------------------------------------
 
@@ -256,40 +275,31 @@ class SetupPage(QWidget):
                 "claude-swap could not report a current login. Sign in with "
                 "Claude Code, then press Re-check."
             )
-            self._set_register_enabled(False)
+            self._login = None
+            self._sync_register_button()
             return
 
+        self._login = status
         self._login_email.setText(status.email)
         if status.managed:
             self._login_badge.apply("Already registered", "ok")
             self._login_hint.setText(
-                "This account is already stored by claude-swap. To use a "
-                "different one, sign in as it below first."
+                "This account is already stored by claude-swap. Registering it "
+                "again under a new name renames it. To add a different account, "
+                "sign in as it below first."
             )
         else:
             self._login_badge.apply("Not yet registered", "warn")
             self._login_hint.setText(
-                "This account is signed in but not stored by claude-swap. "
-                "Register it below to use it as a profile."
+                "This account is signed in but not stored by claude-swap. Give "
+                "it a name below to add it."
             )
-        self._set_register_enabled(True)
+        self._sync_register_button()
 
     def update_accounts(
         self, accounts: AccountList | None, states: tuple[ProfileState, ...]
     ) -> None:
         self._accounts = accounts
-
-        for state in states:
-            badge = self._register_status.get(state.profile.key)
-            button = self._register_buttons.get(state.profile.key)
-            if badge is None or button is None:
-                continue
-            if state.account is not None:
-                badge.apply(state.account.email, "ok")
-                button.setText(f"Replace {state.profile.name}")
-            else:
-                badge.apply("Not set up", "muted")
-                button.setText(f"Register as {state.profile.name}")
 
         rows: list[str] = []
         self._alias_account.clear()
@@ -316,60 +326,58 @@ class SetupPage(QWidget):
         self._accounts_label.setText("<br>".join(rows) if rows else "None yet.")
         has_accounts = bool(rows)
         self._alias_account.setEnabled(has_accounts)
-        self._alias_profile.setEnabled(has_accounts)
-        self._alias_button.setEnabled(has_accounts)
+        self._rename_input.setEnabled(has_accounts)
+        self._alias_button.setEnabled(has_accounts and not self._busy)
 
     def _apply_framing(self, states: tuple[ProfileState, ...]) -> None:
         """Present setup steps only when there is setup left to do."""
         t = theme.tokens()
-        missing = [s for s in states if s.account is None]
         connected = [s for s in states if s.account is not None]
 
-        if not missing and connected:
-            names = " and ".join(s.profile.name for s in connected)
+        if connected:
+            names = ", ".join(s.profile.name for s in connected)
+            count = len(connected)
+            noun = "account is" if count == 1 else "accounts are"
             self._summary.setText(
-                f"✓ {names} are connected. You only need this page to point "
-                "a profile at a different Claude account."
+                f"✓ {count} {noun} connected: {names}. Use this page to add "
+                "another one or rename one."
             )
             self._summary.setStyleSheet(
                 f"font-size: {theme.CAPTION}px; color: {t.success}; font-weight: 600;"
             )
             self._summary.setVisible(True)
             self._intro.setVisible(False)
-            self._signin_step.set_numbered(False, "Sign in as a different account")
+            self._signin_step.set_numbered(False, "Sign in as another account")
             self._signin_step.set_detail(
-                "Only needed if you want a profile to use another account. Opens "
-                "a terminal and your browser."
+                "Opens a terminal and your browser. If it signs you in as an "
+                "account you already have, type /login there to switch."
             )
-            self._register_step.set_numbered(False, "Point a profile at the signed-in account")
+            self._register_step.set_numbered(False, "Name it and register it")
             self._register_step.set_detail(
-                "Replaces which account the profile uses. The address shown "
-                "above is the one that will be stored."
+                "Adds the account shown above under the name you choose. Using "
+                "an existing name replaces the account behind it."
             )
             return
 
-        if missing:
-            names = " and ".join(s.profile.name for s in missing)
-            self._summary.setText(f"{names} still needs an account.")
-            self._summary.setStyleSheet(
-                f"font-size: {theme.CAPTION}px; color: {t.caution}; font-weight: 600;"
-            )
-            self._summary.setVisible(True)
-        else:
-            self._summary.setVisible(False)
+        self._summary.setText("No accounts yet. Add the first one below.")
+        self._summary.setStyleSheet(
+            f"font-size: {theme.CAPTION}px; color: {t.caution}; font-weight: 600;"
+        )
+        self._summary.setVisible(True)
         self._intro.setVisible(True)
         self._signin_step.set_numbered(True)
         self._register_step.set_numbered(True)
 
-    def _set_register_enabled(self, enabled: bool) -> None:
-        for button in self._register_buttons.values():
-            button.setEnabled(enabled)
-
     def set_busy(self, busy: bool) -> None:
+        self._busy = busy
         self._sign_in_button.setEnabled(not busy)
         self._alias_button.setEnabled(not busy and self._alias_account.count() > 0)
-        for button in self._register_buttons.values():
-            button.setEnabled(not busy)
+        self._sync_register_button()
+
+    def clear_alias(self) -> None:
+        """Empty the name fields after a successful registration."""
+        self._alias_input.clear()
+        self._rename_input.clear()
 
     def set_result(self, message: str, ok: bool = True) -> None:
         color = "#16a34a" if ok else "#dc2626"

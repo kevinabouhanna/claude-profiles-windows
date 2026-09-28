@@ -22,11 +22,6 @@ from .usage_bar import UsageBar
 
 MAX_SCOPED_ROWS = 2
 
-# Profile key -> Fluent glyph, so Personal and Work are distinguishable at a
-# glance without relying on colour alone.
-PROFILE_GLYPHS = {"personal": "personal", "work": "work"}
-
-
 class Divider(QFrame):
     def __init__(self) -> None:
         super().__init__()
@@ -84,7 +79,7 @@ class ProfileCard(QFrame):
 
         self._avatar = ProfileAvatar(
             self._accent,
-            PROFILE_GLYPHS.get(state.profile.key, "personal"),
+            state.profile.glyph,
             size=34 if not self._compact else 30,
         )
         header.addWidget(self._avatar, 0, Qt.AlignmentFlag.AlignTop)

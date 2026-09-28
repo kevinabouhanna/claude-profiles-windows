@@ -14,7 +14,6 @@ import time
 import pytest
 
 from claude_profiles.main_window import MainWindow
-from claude_profiles.models import DEFAULT_PROFILES
 from claude_profiles.services import autostart
 from claude_profiles.services.mock_cswap import MockCswapClient
 from claude_profiles.services.profile_service import ProfileService
@@ -241,7 +240,7 @@ def test_an_account_disappearing_is_not_reported_as_a_recovery(tmp_path):
     settings = SettingsService(data_dir=tmp_path / "d")
     broken = MockCswapClient("work_reauth")
     empty = MockCswapClient("no_accounts")
-    svc = ProfileService(broken, settings, DEFAULT_PROFILES)
+    svc = ProfileService(broken, settings)
 
     svc.apply_accounts(broken.list_accounts())
     svc.apply_accounts(empty.list_accounts())
@@ -289,9 +288,10 @@ def test_a_refresh_keeps_the_accounts_page_in_step(controller):
 
     window.update_states(ctl.profiles.states)
 
+    listed = window.setup_page._accounts_label.text()
+    assert ctl.profiles.states, "the healthy demo has accounts"
     for state in ctl.profiles.states:
-        badge = window.setup_page._register_status[state.profile.key]
-        assert badge._label.text() == state.account.email
+        assert state.account.email in listed
 
 
 def test_a_configured_page_drops_the_step_numbering(controller):

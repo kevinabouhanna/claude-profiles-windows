@@ -13,7 +13,7 @@ from claude_profiles.main_window import (
     TAB_SETTINGS,
     MainWindow,
 )
-from claude_profiles.models import DEFAULT_PROFILES, ActivityEntry
+from claude_profiles.models import ActivityEntry
 from claude_profiles.services.mock_cswap import MockCswapClient
 from claude_profiles.services.profile_service import ProfileService
 from claude_profiles.services.settings_service import Settings, SettingsService
@@ -345,8 +345,9 @@ def test_a_banner_can_carry_a_severity(window):
     assert "unfamiliar" in w._banner.message()
 
 
-def test_the_shortcut_description_names_the_real_profiles(window):
+def test_the_shortcut_description_covers_every_position(window):
     w = window()
     description = w._hotkeys_card.description()
-    for profile in DEFAULT_PROFILES:
-        assert profile.name in description
+    # Shortcuts follow account order, so they work for any number of accounts.
+    assert "Ctrl+Alt+1" in description
+    assert "Ctrl+Alt+9" in description

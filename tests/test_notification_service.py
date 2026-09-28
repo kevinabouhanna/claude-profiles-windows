@@ -13,8 +13,9 @@ from datetime import UTC, datetime
 import pytest
 
 from claude_profiles.models import (
-    DEFAULT_PROFILES,
+    BLUE,
     Account,
+    Profile,
     ProfileState,
     Usage,
     UsageStatus,
@@ -44,7 +45,7 @@ class FakeTray:
 
 def state(key: str, five: float | None, seven: float = 0.0, *, stale: bool = False,
           status: UsageStatus = UsageStatus.OK) -> ProfileState:
-    profile = next(p for p in DEFAULT_PROFILES if p.key == key)
+    profile = Profile(key=key, name=key.title(), alias=key, color=BLUE, number=1)
     usage = Usage(
         five_hour=UsageWindow(pct=five) if five is not None else None,
         seven_day=UsageWindow(pct=seven),
@@ -193,7 +194,7 @@ def test_stale_readings_do_not_raise_alerts(service):
 
 def test_an_unregistered_profile_is_skipped(service):
     svc, tray = service()
-    profile = DEFAULT_PROFILES[0]
+    profile = Profile(key="personal", name="Personal", alias="personal", color=BLUE)
     svc.check_thresholds((ProfileState(profile=profile, account=None),))
     assert tray.messages == []
 

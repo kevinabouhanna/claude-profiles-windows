@@ -368,16 +368,20 @@ class SwitchOutcome:
 
 @dataclass(frozen=True)
 class Profile:
-    """A user-visible profile. Deliberately holds no email address.
+    """A user-visible profile: one account claude-swap has registered.
 
-    The alias is the only account identifier stored in source or settings; the
-    email shown in the UI is whatever ``cswap list --json`` reports at runtime.
+    Profiles are derived from ``cswap list --json`` at runtime rather than
+    configured, so any number of accounts is supported. None of this is
+    persisted, and none of it is an email address - the email shown in the UI
+    is whatever cswap reports.
     """
 
     key: str
     name: str
-    alias: str
+    alias: str | None
     color: str
+    number: int | None = None
+    glyph: str = "personal"
 
 
 @dataclass
@@ -390,7 +394,7 @@ class ProfileState:
 
     @property
     def is_registered(self) -> bool:
-        """False when no cswap account carries this profile's alias."""
+        """False once the account has disappeared from claude-swap."""
         return self.account is not None
 
     @property
@@ -414,10 +418,62 @@ class ProfileState:
 BLUE = "#0078D4"  # Windows default accent
 ORANGE = "#F7630C"  # Windows accent palette, "Orange bright"
 
-DEFAULT_PROFILES: tuple[Profile, ...] = (
-    Profile(key="personal", name="Personal", alias="personal", color=BLUE),
-    Profile(key="work", name="Work", alias="work", color=ORANGE),
+# One colour per account slot, in slot order. Keyed by slot number rather than
+# list position, so an account keeps its colour when another one is removed.
+PROFILE_PALETTE: tuple[str, ...] = (
+    BLUE,
+    ORANGE,
+    "#107C10",  # green
+    "#8764B8",  # purple
+    "#038387",  # teal
+    "#E3008C",  # magenta
+    "#D13438",  # red
+    "#986F0B",  # gold
 )
+
+# Aliases that read as work accounts get the briefcase glyph; everything else
+# gets a person. Colour carries identity; the glyph is only a hint.
+_WORK_WORDS = ("work", "job", "office", "corp", "company", "team", "client")
+
+
+def profile_name(alias: str | None, number: int | None) -> str:
+    """``client-acme`` -> ``Client Acme``; no alias -> ``Account 3``."""
+    if alias:
+        words = [w for w in alias.replace("_", "-").replace(".", "-").split("-") if w]
+        if words:
+            return " ".join(w[:1].upper() + w[1:] for w in words)
+    return f"Account {number}" if number is not None else "Account"
+
+
+def profile_for(account: Account, position: int = 0) -> Profile:
+    """The profile that presents one cswap account."""
+    slot = account.number if account.number is not None else position + 1
+    alias = account.alias
+    if alias:
+        key = alias
+    elif account.number is not None:
+        key = f"#{account.number}"
+    else:
+        key = f"#pos{position}"
+    lowered = (alias or "").lower()
+    glyph = "work" if any(word in lowered for word in _WORK_WORDS) else "personal"
+    return Profile(
+        key=key,
+        name=profile_name(alias, account.number),
+        alias=alias,
+        color=PROFILE_PALETTE[(slot - 1) % len(PROFILE_PALETTE)],
+        number=account.number,
+        glyph=glyph,
+    )
+
+
+def profiles_for(accounts: AccountList) -> tuple[Profile, ...]:
+    """Every registered account as a profile, in claude-swap slot order."""
+    ordered = sorted(
+        enumerate(accounts.accounts),
+        key=lambda item: (item[1].number is None, item[1].number or 0, item[0]),
+    )
+    return tuple(profile_for(account, position) for position, account in ordered)
 
 
 @dataclass(frozen=True)

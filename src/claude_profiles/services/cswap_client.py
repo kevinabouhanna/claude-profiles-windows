@@ -98,7 +98,9 @@ class CswapBackend(Protocol):
 
     def status(self) -> ActiveStatus: ...
 
-    def switch(self, alias: str, *, fallback_number: int | None = None) -> SwitchOutcome: ...
+    def switch(
+        self, alias: str | None, *, fallback_number: int | None = None
+    ) -> SwitchOutcome: ...
 
     def add_current_account(self, alias: str) -> str: ...
 
@@ -275,13 +277,25 @@ class CswapClient:
                 "The status from claude-swap was not in the expected form.",
             ) from exc
 
-    def switch(self, alias: str, *, fallback_number: int | None = None) -> SwitchOutcome:
+    def switch(
+        self, alias: str | None, *, fallback_number: int | None = None
+    ) -> SwitchOutcome:
         """Switch the active account.
 
         Upstream documents ``switch NUM|EMAIL|ALIAS``, so the alias is sent as
         given. If that is rejected, and the caller resolved a slot number from
-        ``list``, retry by number rather than failing the user's click.
+        ``list``, retry by number rather than failing the user's click. An
+        account registered without an alias is switched by number directly.
         """
+        if alias is None:
+            if fallback_number is None:
+                raise CswapError(
+                    CswapErrorKind.DISALLOWED, "No alias or slot number to switch to."
+                )
+            payload = self._invoke(
+                ["switch", str(int(fallback_number)), "--json"], self._switch_timeout
+            )
+            return SwitchOutcome.parse(payload)
         if not ALIAS_PATTERN.match(alias):
             raise CswapError(CswapErrorKind.DISALLOWED, "Refused an invalid profile alias.")
         try:

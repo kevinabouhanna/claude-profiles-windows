@@ -116,7 +116,7 @@ def test_a_combination_already_in_use_is_reported_not_silently_dropped(fake_win)
 
 
 def test_all_combinations_refused_reports_failure_and_cleans_up(fake_win):
-    fake_win(refuse={1, 2})
+    fake_win(refuse={index for index in range(1, len(DEFAULT_BINDINGS) + 1)})
     app = FakeApp()
     manager = HotkeyManager(lambda key: None)
 
@@ -161,17 +161,24 @@ def test_unsupported_platform_declines_cleanly(monkeypatch):
 # --- dispatch -------------------------------------------------------------
 
 
-def test_a_hotkey_id_maps_to_its_profile(fake_win):
+def test_a_hotkey_id_maps_to_its_account_position(fake_win):
     fake_win()
     app = FakeApp()
-    fired: list[str] = []
+    fired: list[int] = []
     manager = HotkeyManager(fired.append)
     manager.enable(app)
 
-    manager._handle(1)
-    manager._handle(2)
+    for hotkey_id in range(1, len(DEFAULT_BINDINGS) + 1):
+        manager._handle(hotkey_id)
 
     assert fired == [binding[0] for binding in DEFAULT_BINDINGS]
+
+
+def test_there_is_a_shortcut_for_each_of_nine_positions():
+    """Ctrl+Alt+1..9, so the shortcuts are not tied to two named profiles."""
+    assert [b[0] for b in DEFAULT_BINDINGS] == list(range(1, 10))
+    assert [b[3] for b in DEFAULT_BINDINGS] == [f"Ctrl+Alt+{n}" for n in range(1, 10)]
+    assert [b[2] for b in DEFAULT_BINDINGS] == list(range(0x31, 0x3A))
 
 
 def test_an_unknown_hotkey_id_is_ignored(fake_win):

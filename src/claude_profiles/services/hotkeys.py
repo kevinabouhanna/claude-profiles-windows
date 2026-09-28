@@ -1,4 +1,7 @@
-"""Optional system-wide hotkeys (Ctrl+Alt+1 / Ctrl+Alt+2).
+"""Optional system-wide hotkeys: Ctrl+Alt+1 to Ctrl+Alt+9.
+
+Each digit switches to the account in that position, in the order the Overview
+page shows them, so the shortcuts work for however many accounts are set up.
 
 Qt has no cross-platform global hotkey, so this uses the Win32 ``RegisterHotKey``
 API through ctypes plus a native event filter.
@@ -23,11 +26,12 @@ MOD_NOREPEAT = 0x4000
 WM_HOTKEY = 0x0312
 
 VK_1 = 0x31
-VK_2 = 0x32
+MAX_SHORTCUTS = 9
 
-DEFAULT_BINDINGS = (
-    ("personal", MOD_CONTROL | MOD_ALT, VK_1, "Ctrl+Alt+1"),
-    ("work", MOD_CONTROL | MOD_ALT, VK_2, "Ctrl+Alt+2"),
+# (position, modifiers, virtual key, label). Position is 1-based.
+DEFAULT_BINDINGS = tuple(
+    (position, MOD_CONTROL | MOD_ALT, VK_1 + position - 1, f"Ctrl+Alt+{position}")
+    for position in range(1, MAX_SHORTCUTS + 1)
 )
 
 
@@ -53,10 +57,10 @@ class HotkeyFilter(QAbstractNativeEventFilter):
 class HotkeyManager(QObject):
     """Registers and releases the global shortcuts."""
 
-    def __init__(self, on_triggered: Callable[[str], None], parent: QObject | None = None) -> None:
+    def __init__(self, on_triggered: Callable[[int], None], parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._on_triggered = on_triggered
-        self._registered: dict[int, str] = {}
+        self._registered: dict[int, int] = {}  # hotkey id -> account position
         self._filter: HotkeyFilter | None = None
         self._supported = sys.platform == "win32"
 
@@ -69,9 +73,9 @@ class HotkeyManager(QObject):
         return bool(self._registered)
 
     def _handle(self, hotkey_id: int) -> None:
-        key = self._registered.get(hotkey_id)
-        if key:
-            self._on_triggered(key)
+        position = self._registered.get(hotkey_id)
+        if position:
+            self._on_triggered(position)
 
     def enable(self, app) -> tuple[bool, str]:
         """Register every binding. Returns ``(ok, message)``."""
@@ -85,9 +89,9 @@ class HotkeyManager(QObject):
         app.installNativeEventFilter(self._filter)
 
         failed: list[str] = []
-        for index, (key, modifiers, vk, label) in enumerate(DEFAULT_BINDINGS, start=1):
+        for index, (position, modifiers, vk, label) in enumerate(DEFAULT_BINDINGS, start=1):
             if user32.RegisterHotKey(None, index, modifiers | MOD_NOREPEAT, vk):
-                self._registered[index] = key
+                self._registered[index] = position
             else:
                 failed.append(label)
 
@@ -99,7 +103,9 @@ class HotkeyManager(QObject):
             )
         if failed:
             return True, f"Registered, except {', '.join(failed)} (already in use)."
-        return True, "Global shortcuts enabled (Ctrl+Alt+1, Ctrl+Alt+2)."
+        return True, (
+            f"Global shortcuts enabled (Ctrl+Alt+1 to Ctrl+Alt+{MAX_SHORTCUTS})."
+        )
 
     def disable(self, app) -> None:
         if self._supported:

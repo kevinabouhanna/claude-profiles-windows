@@ -14,8 +14,9 @@ The first public release.
 
 ### Added
 
-- Tray app showing two Claude Code accounts (Personal and Work) side by side: 5-hour and 7-day
-  usage with reset countdowns, per-model rows, a pace indicator, data age, and login health.
+- Tray app showing every Claude Code account registered with claude-swap, however many there
+  are: 5-hour and 7-day usage with reset countdowns, per-model rows, a pace indicator, data age,
+  and login health. Each account gets its own card, colour and menu entry.
 - One-click switching of the account Claude Code uses for new sessions, via
   [claude-swap](https://github.com/realiti4/claude-swap), with a Windows notification confirming
   the result.
@@ -23,8 +24,11 @@ The first public release.
   active account.
 - Compact tray flyout, plus a full dashboard with Overview, Accounts, Activity, Privacy and Settings
   pages in a WinUI-style layout that follows the Windows accent colour.
-- Guided account setup on the Accounts page, which shows the exact address before registering it.
-- Opt-in threshold notifications and global shortcuts (`Ctrl+Alt+1` / `Ctrl+Alt+2`).
+- *Add an account* wizard: sign in, name the account anything (`personal`, `work`,
+  `client-acme`), and save. It shows the exact address before registering it. Accounts can be
+  renamed from the Accounts page.
+- Opt-in threshold notifications, and global shortcuts `Ctrl+Alt+1` to `Ctrl+Alt+9` for the first
+  nine accounts.
 - Adaptive refresh: refresh on open, 30-second polling while a window is visible, and backoff after
   errors.
 - Start menu and Startup shortcuts, with no registry writes.

@@ -4,8 +4,8 @@
 
 # Claude Profiles
 
-**Run two Claude Code accounts on Windows without the log-out/log-in dance.**
-See both accounts' quota at a glance, switch in one click, or open a terminal bound to either one.
+**Juggle as many Claude Code accounts as you have on Windows, without the log-out/log-in dance.**
+See every account's quota at a glance, switch in one click, or open a terminal bound to any of them.
 
 [![Latest release](https://img.shields.io/github/v/release/kevinabouhanna/claude-profiles-windows?label=download&color=0078D4)](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest)
 [![CI](https://github.com/kevinabouhanna/claude-profiles-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinabouhanna/claude-profiles-windows/actions/workflows/ci.yml)
@@ -16,7 +16,7 @@ See both accounts' quota at a glance, switch in one click, or open a terminal bo
 
 **[⬇️ Download the installer for Windows](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest)**
 
-<img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing a Personal and a Work account side by side with 5-hour, 7-day and per-model usage bars" width="760">
+<img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing three accounts - Personal, Work and Side Project - each with 5-hour, 7-day and per-model usage bars" width="760">
 
 </div>
 
@@ -25,26 +25,27 @@ See both accounts' quota at a glance, switch in one click, or open a terminal bo
 ## Sound familiar?
 
 If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with more than one account, such as
-a personal subscription and a work one, you have probably hit some of these:
+a personal subscription, a work seat, a client's organisation, or a spare account for when you hit
+your limits, you have probably hit some of these:
 
 - **Claude Code only knows one account at a time.** Changing account means `/logout`, `/login`, a
   browser round-trip, and remembering which email you are in right now.
-- **You hit the 5-hour limit halfway through a task**, and you cannot tell whether your *other*
-  account has headroom without switching to it first.
+- **You hit the 5-hour limit halfway through a task**, and you cannot tell which of your *other*
+  accounts has headroom without switching to each one first.
 - **Usage is invisible until it is a problem.** Your 5-hour and 7-day limits are checked one account at
   a time, so you find out you are at 95% when Claude stops answering.
-- **You want both accounts at once**: one terminal on the work account and another on personal,
-  without one login clobbering the other.
+- **You want several accounts at once**: one terminal on the work account, another on a personal
+  one, without one login clobbering the other.
 - **The tools that exist don't fit Windows.** [claude-swap](https://github.com/realiti4/claude-swap)
   solves the credential side well, but it is a CLI. The polished multi-profile usage trackers are
   macOS apps.
 
-**Claude Profiles is a small Windows tray app that fixes all of the above.** It puts both accounts'
-usage in your notification area. Switching is one click, and it can open a terminal locked to
-either account. It never touches your credentials itself.
+**Claude Profiles is a small Windows tray app that fixes all of the above.** It puts every account's
+usage in your notification area, however many you have. Switching is one click, and it can open a
+terminal locked to any account. It never touches your credentials itself.
 
 <div align="center">
-<img src="docs/images/flyout.png" alt="The compact tray flyout with both profiles, usage bars and a Switch to Work button" width="360">
+<img src="docs/images/flyout.png" alt="The compact tray flyout listing every account with usage bars and a switch button on each" width="360">
 <br><sub>Left-click the tray icon for the compact flyout.</sub>
 </div>
 
@@ -52,14 +53,15 @@ either account. It never touches your credentials itself.
 
 | | |
 |---|---|
-| 📊 **Both accounts at a glance** | 5-hour and 7-day usage with reset countdowns, per-model rows (e.g. Opus), a pace indicator ("ahead of pace, expected 57%"), data age, and login health. |
+| 📊 **Every account at a glance** | 5-hour and 7-day usage with reset countdowns, per-model rows (e.g. Opus), a pace indicator ("ahead of pace, expected 57%"), data age, and login health. |
 | 🔁 **One-click switching** | Changes the account Claude Code uses for **new** sessions. The controls lock while the switch runs, and a Windows notification confirms the result. |
-| 🖥️ **Isolated sessions** | Open a Claude Code terminal bound to one account *without* changing the global active account, so you can run both side by side. |
+| 🖥️ **Isolated sessions** | Open a Claude Code terminal bound to one account *without* changing the global active account, so you can run several side by side. |
+| ➕ **As many accounts as you have** | Two, three or ten: every account registered with claude-swap gets a card, a colour, a menu entry and a shortcut. Name them whatever you like: `personal`, `work`, `client-acme`. |
 | 🪟 **A proper Windows tray app** | Monochrome Fluent glyph that follows your taskbar theme, with a coloured badge for the active profile. Left-click for the flyout; right-click for a native menu. |
 | 🧭 **Full dashboard** | WinUI-style navigation with Overview, Accounts, Activity, Privacy and Settings pages. It follows your Windows accent colour and uses Segoe Fluent Icons. |
-| 🧑‍💻 **Guided account setup** | The Accounts page walks you through signing in and registering each account, and shows exactly which address you are about to register. |
+| 🧑‍💻 **Guided account setup** | *Add an account* walks you through signing in and naming each account, and shows exactly which address you are about to register. Rename accounts at any time. |
 | 🔔 **Threshold alerts** *(opt-in)* | Notifies you when usage crosses a warning or critical level. It fires once per crossing and re-arms after the reset. |
-| ⌨️ **Global shortcuts** *(opt-in)* | `Ctrl+Alt+1` for Personal, `Ctrl+Alt+2` for Work. |
+| ⌨️ **Global shortcuts** *(opt-in)* | `Ctrl+Alt+1` to `Ctrl+Alt+9` switch to your first nine accounts, in the order the Overview shows them. |
 | ⚡ **Smart refresh** | Opening the flyout refreshes it. Polling speeds up to 30 s while a window is visible and backs off automatically after errors. |
 | 🚀 **Starts with Windows** | Adds a Start menu and Startup shortcut. No registry keys are written. |
 | 🧪 **Demo mode** | `--mock` runs the whole UI on synthetic data. Useful for trying it before you set anything up. |
@@ -163,18 +165,18 @@ uv pip install -e .
 Windows 11 hides new tray icons by default. To keep this one visible, go to **Settings >
 Personalisation > Taskbar > Other system tray icons** and switch on *Claude Profiles*.
 
-### 3. Register your two accounts
+### 3. Register your accounts
 
-**You can do this inside the app.** Open the **Accounts** page from the tray menu, or click
-*Set up Personal…* on an unregistered profile card. For each account:
+**You can do this inside the app.** Choose **Add an account** from the tray menu or the flyout. For
+each account you use, as many as you have:
 
 1. **Sign in.** The button opens a terminal running Claude Code. Sign in there (type `/login` to change
-   account), close it, then press **Re-check**.
-2. **Register.** The page shows which address Claude Code is signed in as right now. Confirm it and
-   store it as Personal or Work.
+   account), then close it. The wizard notices the sign-in on its own.
+2. **Name it and save it.** The wizard shows which address Claude Code is signed in as right now.
+   Check it, give it a short name such as `personal`, `work` or `client-acme`, and save.
 
-If an account was registered under the wrong name, the bottom of the page re-points it instead of
-adding it twice.
+Repeat for the next account. To rename one later, use the **Accounts** page, which also lists every
+account claude-swap knows about.
 
 <details>
 <summary>The equivalent terminal commands, if you prefer</summary>
@@ -183,16 +185,17 @@ adding it twice.
 claude                      # sign in as the first account, then exit
 cswap add --alias personal
 
-claude                      # sign in as the second account, then exit
-cswap add --alias work
+claude                      # sign in as the next account, then exit
+cswap add --alias work      # ...and so on, one alias per account
 
-cswap list                  # both accounts should appear with their aliases
-cswap alias 1 personal      # to re-point an existing account
+cswap list                  # every account should appear with its alias
+cswap alias 3 client-acme   # to rename an existing account
 ```
 </details>
 
-The aliases `personal` and `work` are the only account identifiers Claude Profiles stores. Email
-addresses are read from `cswap list --json` at runtime and never written into source or config.
+Claude Profiles stores no account identifiers of its own. The list of accounts, their names and
+their email addresses are read from `cswap list --json` each time, and never written into source
+or config.
 
 ### Demo scenarios
 
@@ -213,7 +216,7 @@ Scenarios: `healthy`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usa
 | Refresh interval | 120 s | Used while the app is in the tray. Polls never overlap and back off automatically after errors. |
 | Launch at Windows sign-in | **On** | Creates a shortcut in your Startup folder. **No registry keys are ever written.** Turning it off deletes the shortcut. |
 | Threshold notifications | Off | Fires on an upward crossing only, and re-arms after a reset. |
-| Global shortcuts | Off | `Ctrl+Alt+1` Personal, `Ctrl+Alt+2` Work. Registered only when enabled. |
+| Global shortcuts | Off | `Ctrl+Alt+1` to `Ctrl+Alt+9`, one per account in Overview order. Registered only when enabled. |
 
 Switch confirmations always appear, regardless of the notification setting, because they are the
 direct result of something you clicked.
@@ -234,7 +237,7 @@ If claude-swap reports `token_expired`, `relogin_required`, or `no_credentials`,
 
 1. Open the **Accounts** page and press **Open a terminal to sign in to Claude Code**.
 2. Sign in as that account, close the terminal, and press **Re-check**.
-3. Press **Register as Personal** / **Register as Work** to refresh the stored slot.
+3. Register it again under the same name to refresh the stored slot.
 
 The equivalent by hand is `claude` to sign in, then `cswap add --alias <alias>`. The app will never
 try to automate authentication in the background.
@@ -258,7 +261,7 @@ try to automate authentication in the background.
   bearer tokens and `token=`/`secret=` assignments. Email addresses are masked.
 - **No telemetry**, analytics, crash reporting, cloud sync, or remote configuration.
 - **Restricted storage.** `%LOCALAPPDATA%\ClaudeProfiles\` is locked to your user account on
-  creation. It holds only UI preferences, aliases, and a capped activity history.
+  creation. It holds only UI preferences and a capped activity history.
 
 The in-app **Privacy** page says the same, and has **Open data folder** and **Clear local activity
 history** buttons. See [`docs/privacy.md`](docs/privacy.md) for the full data inventory.

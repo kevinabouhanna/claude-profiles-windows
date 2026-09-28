@@ -1,4 +1,4 @@
-"""Tests for the per-profile setup wizard.
+"""Tests for the add-an-account wizard.
 
 The important one is :func:`test_status_from_worker_thread_reaches_the_ui`.
 Results are produced on a worker thread, and the obvious way to hand them back
@@ -15,11 +15,13 @@ import time
 
 import pytest
 
-from claude_profiles.models import DEFAULT_PROFILES, ActiveStatus
+from claude_profiles.models import BLUE, ORANGE, ActiveStatus, Profile
 from claude_profiles.widgets.setup_dialog import SetupDialog
 
-PERSONAL = DEFAULT_PROFILES[0]
-WORK = DEFAULT_PROFILES[1]
+PERSONAL = Profile(key="personal", name="Personal", alias="personal", color=BLUE, number=1)
+WORK = Profile(
+    key="work", name="Work", alias="work", color=ORANGE, number=2, glyph="work"
+)
 
 SIGNED_IN = ActiveStatus(email="someone@example.invalid", managed=False)
 MANAGED = ActiveStatus(email="someone@example.invalid", managed=True)
@@ -180,3 +182,55 @@ def test_closing_stops_the_poll_timer(dialog):
 def test_dialog_is_titled_for_its_profile(dialog):
     assert dialog(profile=WORK).windowTitle() == "Set up Work"
     assert dialog(profile=WORK).profile.key == "work"
+
+
+# --- adding an account under any name ---------------------------------------
+
+
+def test_adding_an_account_starts_with_an_empty_name(dialog):
+    d = dialog(profile=None)
+    d.update_status(SIGNED_IN)
+    assert d.windowTitle() == "Add an account"
+    assert d.alias() == ""
+    assert d._register_button.isEnabled() is False, "a name is required"
+
+
+def test_a_valid_name_enables_saving_and_is_emitted(dialog, qtbot):
+    d = dialog(profile=None)
+    d.update_status(SIGNED_IN)
+    d._alias_input.setText("Client-Acme")
+    assert d._register_button.isEnabled() is True
+    assert "Client Acme" in d._register_button.text()
+
+    with qtbot.waitSignal(d.registerRequested) as signal:
+        d._register_button.click()
+    assert signal.args == ["client-acme"], "aliases are lowercased before use"
+
+
+@pytest.mark.parametrize("bad", ["123", "has space", "-leading", "emoji😀", "a/b"])
+def test_an_invalid_name_blocks_saving_and_says_why(dialog, bad):
+    d = dialog(profile=None)
+    d.update_status(SIGNED_IN)
+    d._alias_input.setText(bad)
+    assert d._register_button.isEnabled() is False
+    assert d._alias_hint.text()
+
+
+def test_the_name_field_stops_at_claude_swaps_limit(dialog):
+    d = dialog(profile=None)
+    d._alias_input.setText("a" * 40)
+    assert len(d.alias()) == 32
+
+
+def test_a_name_cannot_be_saved_without_a_sign_in(dialog):
+    d = dialog(profile=None, reader=lambda: None)
+    d.update_status(None)
+    d._alias_input.setText("work")
+    assert d._register_button.isEnabled() is False
+
+
+def test_reconnecting_a_profile_prefills_its_name(dialog):
+    d = dialog(profile=WORK)
+    d.update_status(MANAGED)
+    assert d.alias() == "work"
+    assert d._register_button.isEnabled() is True

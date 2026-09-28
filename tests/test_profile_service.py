@@ -45,15 +45,112 @@ def test_display_label_uses_runtime_email_not_source(service):
     assert "@example.invalid" in label
 
 
-def test_unregistered_alias_is_reported(settings_service):
+def test_no_accounts_means_no_profiles(settings_service):
+    """Profiles come from claude-swap; nothing is preconfigured."""
     backend = MockCswapClient("no_accounts")
     svc = ProfileService(backend, settings_service)
     svc.refresh_sync()
 
-    state = svc.state("work")
-    assert state.is_registered is False
-    assert state.error is not None
-    assert "work" in state.error
+    assert svc.states == ()
+    assert svc.state("work") is None
+
+
+def test_every_registered_account_becomes_a_profile(service):
+    svc, _ = service
+    svc.refresh_sync()
+
+    assert [s.profile.key for s in svc.states] == ["personal", "work", "side-project"]
+    assert [s.profile.name for s in svc.states] == ["Personal", "Work", "Side Project"]
+    assert all(s.is_registered for s in svc.states)
+
+
+def test_many_accounts_are_all_shown_with_stable_colours(settings_service):
+    """Nothing caps the number of accounts; colours wrap round the palette."""
+    from claude_profiles.models import PROFILE_PALETTE
+
+    backend = MockCswapClient("no_accounts")
+    svc = ProfileService(backend, settings_service)
+    count = len(PROFILE_PALETTE) + 3
+    for n in range(1, count + 1):
+        backend.set_signed_in(f"account{n}@example.invalid")
+        assert svc.register_current_as(f"acct-{n}")[0] is True
+
+    assert len(svc.states) == count
+    colours = [s.profile.color for s in svc.states]
+    assert colours[: len(PROFILE_PALETTE)] == list(PROFILE_PALETTE)
+    assert colours[len(PROFILE_PALETTE)] == PROFILE_PALETTE[0]
+
+
+def test_an_account_without_an_alias_is_named_by_its_slot(settings_service):
+    payload = {
+        **fx.VALID_LIST,
+        "accounts": [
+            {**fx.VALID_LIST["accounts"][0]},
+            {**fx.VALID_LIST["accounts"][1], "alias": None},
+        ],
+    }
+    svc = ProfileService(MockCswapClient("healthy"), settings_service)
+    svc.apply_accounts(AccountList.parse(payload))
+
+    unnamed = svc.states[1]
+    assert unnamed.profile.name == "Account 2"
+    assert unnamed.profile.alias is None
+    assert unnamed.profile.key == "#2"
+
+
+def test_switching_to_an_account_without_an_alias_goes_by_number(settings_service):
+    backend = MockCswapClient("healthy")
+    svc = ProfileService(backend, settings_service)
+    payload = {
+        **fx.VALID_LIST,
+        "accounts": [
+            {**fx.VALID_LIST["accounts"][0]},
+            {**fx.VALID_LIST["accounts"][1], "alias": None},
+        ],
+    }
+    svc.apply_accounts(AccountList.parse(payload))
+    backend.list_accounts = lambda: AccountList.parse(payload)  # keep it unaliased
+
+    ok, _ = svc.switch_sync("#2")
+
+    assert ok is True
+    assert "switch:2" in backend.calls
+
+
+def test_profiles_changed_fires_on_a_new_account_not_on_every_poll(service):
+    svc, backend = service
+    fired: list[bool] = []
+    svc.profilesChanged.connect(lambda: fired.append(True))
+
+    svc.refresh_sync()
+    svc.refresh_sync()
+    assert fired == [True], "a steady poll must not rebuild every card"
+
+    backend.set_signed_in("new@example.invalid")
+    svc.register_current_as("client-acme")
+    assert fired == [True, True]
+    assert svc.state("client-acme") is not None
+
+
+def test_renaming_an_account_moves_its_profile(service):
+    svc, _ = service
+    svc.refresh_sync()
+
+    ok, _ = svc.assign_alias(3, "hobby")
+
+    assert ok is True
+    assert svc.state("side-project") is None
+    assert svc.state("hobby").profile.name == "Hobby"
+
+
+@pytest.mark.parametrize("bad", ["", "123", "Has Space", "-x", "a" * 33])
+def test_an_invalid_alias_is_refused_before_cswap_runs(service, bad):
+    svc, backend = service
+    ok, message = svc.register_current_as(bad)
+    assert ok is False and message
+    ok, message = svc.assign_alias(1, bad)
+    assert ok is False and message
+    assert not any(c.startswith(("add:", "alias:")) for c in backend.calls)
 
 
 def test_stale_account_is_marked_but_still_rendered(settings_service):
@@ -151,7 +248,7 @@ def test_switch_timeout_is_handled(service):
     assert "did not respond" in message
 
 
-def test_switch_to_unregistered_profile_explains_setup(settings_service):
+def test_switch_to_an_unknown_profile_is_refused(settings_service):
     backend = MockCswapClient("no_accounts")
     svc = ProfileService(backend, settings_service)
     svc.refresh_sync()
@@ -159,7 +256,8 @@ def test_switch_to_unregistered_profile_explains_setup(settings_service):
     ok, message = svc.switch_sync("work")
 
     assert ok is False
-    assert "cswap add --alias work" in message
+    assert message == "Unknown profile."
+    assert not any(c.startswith("switch") for c in backend.calls)
 
 
 # --- busy lifecycle -------------------------------------------------------
@@ -328,8 +426,7 @@ def empty_service(settings_service):
 
 def test_setup_starts_with_nothing_registered(empty_service):
     svc, _ = empty_service
-    assert svc.state("personal").is_registered is False
-    assert svc.state("work").is_registered is False
+    assert svc.states == ()
 
 
 def test_read_current_login_reports_unmanaged(empty_service):
@@ -352,27 +449,31 @@ def test_register_current_account(empty_service):
     assert "@example.invalid" in message
 
 
-def test_registering_both_profiles_in_sequence(empty_service):
+def test_registering_several_accounts_in_sequence(empty_service):
     svc, backend = empty_service
 
-    assert svc.register_current_as("personal")[0] is True
-    assert svc.register_current_as("work")[0] is True
+    for alias in ("personal", "work", "side-project"):
+        backend.set_signed_in(f"{alias}@example.invalid")
+        assert svc.register_current_as(alias)[0] is True
 
-    assert svc.state("personal").is_registered is True
-    assert svc.state("work").is_registered is True
+    assert [s.profile.key for s in svc.states] == ["personal", "work", "side-project"]
+    assert all(s.is_registered for s in svc.states)
     # A freshly set-up install has exactly one active profile.
     assert sum(1 for s in svc.states if s.is_active) == 1
 
 
 def test_register_duplicate_alias_fails_safely(empty_service):
-    svc, _ = empty_service
+    """A name already used by a *different* account is refused by cswap."""
+    svc, backend = empty_service
     svc.register_current_as("personal")
+    first = svc.state("personal").account.email
 
+    backend.set_signed_in("someone-else@example.invalid")
     ok, message = svc.register_current_as("personal")
 
     assert ok is False
     assert "already registered" in message.lower()
-    assert svc.state("personal").is_registered is True  # unchanged
+    assert svc.state("personal").account.email == first  # unchanged
 
 
 def test_register_failure_reports_and_clears_busy(empty_service):

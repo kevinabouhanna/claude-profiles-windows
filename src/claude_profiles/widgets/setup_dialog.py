@@ -1,4 +1,4 @@
-"""The per-profile setup wizard.
+"""The add-an-account wizard.
 
 Connecting an account is two jobs, and only one of them belongs to this app:
 
@@ -6,7 +6,10 @@ Connecting an account is two jobs, and only one of them belongs to this app:
    the OAuth flow, so the wizard launches that in a terminal and stays out of
    the way. No credential ever passes through Claude Profiles.
 2. **Recording** the account that resulted is a single ``cswap add --alias``
-   call, which the wizard runs once the user confirms.
+   call, under a name the user types, which the wizard runs once they confirm.
+
+Opened with a profile, it re-registers that account instead, with the name
+filled in.
 
 Between the two it polls ``cswap status`` so it can notice the sign-in
 finishing on its own. Without that the user would have to come back and press a
@@ -24,13 +27,15 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from ..models import ActiveStatus, Profile
+from ..models import ActiveStatus, Profile, profile_name
 from ..resources import fluent_icons
+from ..services.profile_service import ProfileService
 from . import theme
 from .status_badge import ProfileAvatar, StatusBadge
 
@@ -96,10 +101,10 @@ class Step(QFrame):
 
 
 class SetupDialog(QDialog):
-    """Guides one profile from "not set up" to registered."""
+    """Guides one account from signed-in to registered under a name."""
 
     signInRequested = Signal()
-    registerRequested = Signal(str)  # profile key
+    registerRequested = Signal(str)  # alias
     # Emitted from the poll thread. A signal - not QTimer.singleShot - because
     # singleShot called off the GUI thread creates its timer in the *calling*
     # thread, which has no event loop, so the callback never runs. Qt queues
@@ -107,24 +112,31 @@ class SetupDialog(QDialog):
     _statusReady = Signal(object)
 
     @property
-    def profile(self) -> Profile:
+    def profile(self) -> Profile | None:
         return self._profile
+
+    @property
+    def title_name(self) -> str:
+        """What the sign-in terminal is titled after."""
+        return self._profile.name if self._profile else "new account"
 
     def __init__(
         self,
-        profile: Profile,
+        profile: Profile | None,
         status_reader: Callable[[], ActiveStatus | None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._profile = profile
+        self._color = profile.color if profile else theme.tokens().accent
+        self._busy = False
         self._status_reader = status_reader
         self._status: ActiveStatus | None = None
         self._polling = False
         self._poll_inflight = False
         self._baseline_email: str | None = None
 
-        self.setWindowTitle(f"Set up {profile.name}")
+        self.setWindowTitle(f"Set up {profile.name}" if profile else "Add an account")
         self.setMinimumWidth(520)
         self.setStyleSheet(f"background-color: {theme.tokens().background};")
 
@@ -168,8 +180,8 @@ class SetupDialog(QDialog):
         row.setSpacing(12)
         row.addWidget(
             ProfileAvatar(
-                self._profile.color,
-                "work" if self._profile.key == "work" else "personal",
+                self._color,
+                self._profile.glyph if self._profile else "personal",
                 size=40,
             ),
             0,
@@ -177,10 +189,16 @@ class SetupDialog(QDialog):
         )
         text = QVBoxLayout()
         text.setSpacing(2)
-        title = QLabel(f"Set up {self._profile.name}")
+        title = QLabel(
+            f"Set up {self._profile.name}" if self._profile else "Add an account"
+        )
         title.setStyleSheet(theme.text_css(theme.SUBTITLE, "primary", 600))
         text.addWidget(title)
-        subtitle = QLabel("Connect a Claude account to this profile.")
+        subtitle = QLabel(
+            "Reconnect the Claude account behind this profile."
+            if self._profile
+            else "Add as many Claude accounts as you use, one at a time."
+        )
         subtitle.setStyleSheet(theme.text_css(theme.CAPTION, "secondary"))
         text.addWidget(subtitle)
         row.addLayout(text, 1)
@@ -191,12 +209,12 @@ class SetupDialog(QDialog):
             1,
             "Sign in to Claude Code",
             "Opens a terminal and your browser. Sign in as the account you "
-            f"want to use for {self._profile.name}. You can skip this if the "
-            "right account is already signed in below.",
+            "want to add. You can skip this if the right account is already "
+            "signed in below.",
         )
         button = QPushButton("  Sign in to Claude Code")
         button.setIcon(fluent_icons.icon("open_window", theme.tokens().text_on_accent, 16))
-        button.setStyleSheet(theme.accent_button_css(self._profile.color))
+        button.setStyleSheet(theme.accent_button_css(self._color))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.clicked.connect(self.signInRequested.emit)
         self._signin_button = button
@@ -232,18 +250,59 @@ class SetupDialog(QDialog):
     def _build_register_step(self) -> QWidget:
         self._register_step = Step(
             3,
-            f"Save as {self._profile.name}",
-            "Records the account with claude-swap under this profile's alias.",
+            "Name it and save it",
+            "Records the account with claude-swap under this name. It becomes "
+            "the account's label in Claude Profiles.",
         )
-        button = QPushButton(f"  Save this account as {self._profile.name}")
+        self._alias_input = QLineEdit()
+        self._alias_input.setPlaceholderText("e.g. personal, work, client-acme")
+        self._alias_input.setMaxLength(32)
+        if self._profile and self._profile.alias:
+            self._alias_input.setText(self._profile.alias)
+        self._alias_input.textChanged.connect(self._sync_register)
+        self._alias_input.returnPressed.connect(self._emit_register)
+        self._register_step.content.addWidget(self._alias_input)
+
+        self._alias_hint = QLabel("")
+        self._alias_hint.setWordWrap(True)
+        self._alias_hint.setStyleSheet(theme.text_css(theme.CAPTION, "tertiary"))
+        self._register_step.content.addWidget(self._alias_hint)
+
+        button = QPushButton()
         button.setIcon(fluent_icons.icon("add_account", theme.tokens().text_on_accent, 16))
-        button.setStyleSheet(theme.accent_button_css(self._profile.color))
+        button.setStyleSheet(theme.accent_button_css(self._color))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setEnabled(False)
-        button.clicked.connect(lambda: self.registerRequested.emit(self._profile.key))
+        button.clicked.connect(self._emit_register)
         self._register_button = button
         self._register_step.content.addWidget(button)
+        self._sync_register()
         return self._register_step
+
+    def alias(self) -> str:
+        return self._alias_input.text().strip().lower()
+
+    def _register_label(self) -> str:
+        alias = self.alias()
+        if alias and ProfileService.alias_problem(alias) is None:
+            return f"  Save this account as {profile_name(alias, None)}"
+        return "  Save this account"
+
+    def _sync_register(self, *_args) -> None:
+        alias = self.alias()
+        problem = ProfileService.alias_problem(alias) if alias else None
+        signed_in = bool(self._status and self._status.email)
+        self._register_button.setEnabled(
+            signed_in and bool(alias) and problem is None and not self._busy
+        )
+        if not self._busy:
+            self._register_button.setText(self._register_label())
+        self._alias_hint.setText(problem or "")
+        self._alias_hint.setVisible(bool(problem))
+
+    def _emit_register(self) -> None:
+        if self._register_button.isEnabled():
+            self.registerRequested.emit(self.alias())
 
     # -- polling ------------------------------------------------------------
 
@@ -297,8 +356,8 @@ class SetupDialog(QDialog):
         if status is None or not status.email:
             self._email_label.setText("Not signed in")
             self._email_badge.apply("Unknown", "warn")
-            self._register_button.setEnabled(False)
             self._account_step.set_done(False)
+            self._sync_register()
             return
 
         self._email_label.setText(status.email)
@@ -318,14 +377,15 @@ class SetupDialog(QDialog):
             self._email_badge.apply("New account", "accent")
 
         self._account_step.set_done(True)
-        self._register_button.setEnabled(True)
+        self._sync_register()
 
     def set_busy(self, busy: bool) -> None:
-        self._register_button.setEnabled(bool(self._status and not busy))
+        self._busy = busy
         self._signin_button.setEnabled(not busy)
-        self._register_button.setText(
-            "  Saving…" if busy else f"  Save this account as {self._profile.name}"
-        )
+        self._alias_input.setEnabled(not busy)
+        self._sync_register()
+        if busy:
+            self._register_button.setText("  Saving…")
 
     def set_result(self, message: str, ok: bool) -> None:
         t = theme.tokens()
@@ -337,10 +397,9 @@ class SetupDialog(QDialog):
         if ok:
             self._register_step.set_done(True)
             self._register_button.setEnabled(False)
+            self._alias_input.setEnabled(False)
             self._close_button.setText("Done")
-            self._close_button.setStyleSheet(
-                theme.accent_button_css(self._profile.color)
-            )
+            self._close_button.setStyleSheet(theme.accent_button_css(self._color))
             self._stop_polling()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming

@@ -110,11 +110,17 @@ def test_profile_colours_come_from_the_windows_accent_palette():
     definition in models.py with different values, so it passed while the
     profiles were still the old palette.
     """
-    from claude_profiles.models import DEFAULT_PROFILES
+    from claude_profiles.models import PROFILE_PALETTE, profiles_for
+    from claude_profiles.services.mock_cswap import MockCswapClient
 
-    colours = {p.key: p.color.upper() for p in DEFAULT_PROFILES}
-    assert colours == {"personal": "#0078D4", "work": "#F7630C"}
+    profiles = profiles_for(MockCswapClient("healthy").list_accounts())
+    colours = {p.key: p.color.upper() for p in profiles}
+    assert colours["personal"] == "#0078D4"
+    assert colours["work"] == "#F7630C"
     assert theme.BLUE.upper() == colours["personal"]
+    for colour in PROFILE_PALETTE:
+        assert QColor(colour).isValid(), colour
+    assert len(set(PROFILE_PALETTE)) == len(PROFILE_PALETTE), "colours must differ"
 
 
 def test_there_is_one_definition_of_each_profile_colour():

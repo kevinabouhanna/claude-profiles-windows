@@ -55,9 +55,10 @@ class Settings:
     # rather than stored: the path contains the Windows username, and this file
     # is documented as holding no user-identifying data.
     autostart_target: str = ""
-    profile_aliases: dict[str, str] = field(
-        default_factory=lambda: {"personal": "personal", "work": "work"}
-    )
+    # No longer used: profiles now come from whatever accounts claude-swap
+    # has registered. Kept so settings files written by 0.1 pre-releases load
+    # and round-trip unchanged.
+    profile_aliases: dict[str, str] = field(default_factory=dict)
 
     def normalized(self) -> Settings:
         """Clamp values that the UI or a hand-edited file could put out of range."""

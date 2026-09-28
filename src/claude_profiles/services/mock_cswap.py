@@ -21,6 +21,21 @@ from .cswap_client import CswapError, CswapErrorKind
 
 PERSONAL_EMAIL = "personal@example.invalid"
 WORK_EMAIL = "work@example.invalid"
+SIDE_EMAIL = "side-project@example.invalid"
+
+# The demo accounts, in slot order: (email, alias, organisation, is_org,
+# baseline 5h %, baseline 7d %). Three rather than two, so demo mode and the
+# screenshots show that the number of accounts is not fixed.
+_CATALOG: dict[str, tuple[str, str, bool, float, float]] = {
+    PERSONAL_EMAIL: ("personal", "Personal", False, 42, 63),
+    WORK_EMAIL: ("work", "Example Org", True, 74, 51),
+    SIDE_EMAIL: ("side-project", "Side Project", False, 12, 28),
+}
+_ORG_UUIDS = {
+    PERSONAL_EMAIL: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    WORK_EMAIL: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    SIDE_EMAIL: "1b4e28ba-2fa1-11d2-883f-0016d3cca427",
+}
 
 SCENARIOS = (
     "healthy",
@@ -68,10 +83,13 @@ class MockCswapClient:
             raise ValueError(f"unknown scenario: {scenario}")
         self.scenario = scenario
         self._started = time.monotonic()
-        self._active_alias = "personal"
-        # Which aliases are registered. "no_accounts" starts empty so the
-        # setup flow can be exercised end to end in demo mode.
-        self._registered: list[str] = [] if scenario == "no_accounts" else ["personal", "work"]
+        # Registered accounts as {number, email, alias}. "no_accounts" starts
+        # empty so the setup flow can be exercised end to end in demo mode.
+        self._accounts: list[dict[str, Any]] = []
+        if scenario != "no_accounts":
+            for number, (email, (alias, *_)) in enumerate(_CATALOG.items(), start=1):
+                self._accounts.append({"number": number, "email": email, "alias": alias})
+        self._active_number: int | None = 1 if self._accounts else None
         # Who Claude Code is currently signed in as, for `add` to pick up.
         self._signed_in_email = WORK_EMAIL
         # Test hooks.
@@ -119,22 +137,22 @@ class MockCswapClient:
         }
         return usage
 
-    def _account(self, alias: str) -> dict[str, Any]:
-        is_personal = alias == "personal"
+    def _account(self, entry: dict[str, Any]) -> dict[str, Any]:
+        email = entry["email"]
+        alias = entry["alias"]
+        _, org, is_org, base_five, base_seven = _CATALOG.get(
+            email, (alias, "Example", False, 30, 40)
+        )
         account: dict[str, Any] = {
-            "number": 1 if is_personal else 2,
-            "email": PERSONAL_EMAIL if is_personal else WORK_EMAIL,
+            "number": entry["number"],
+            "email": email,
             "alias": alias,
-            "organizationName": "Personal" if is_personal else "Example Org",
-            "organizationUuid": (
-                "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
-                if is_personal
-                else "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-            ),
-            "isOrganization": not is_personal,
-            "active": self._active_alias == alias,
+            "organizationName": org,
+            "organizationUuid": _ORG_UUIDS.get(email, "00000000-0000-4000-8000-000000000000"),
+            "isOrganization": is_org,
+            "active": self._active_number == entry["number"],
             "usageStatus": "ok",
-            "usage": self._usage(42, 63) if is_personal else self._usage(74, 51),
+            "usage": self._usage(base_five, base_seven),
             "usageFetchedAt": _iso(datetime.now(UTC)),
             "usageAgeSeconds": 3.2,
         }
@@ -167,7 +185,7 @@ class MockCswapClient:
                 account["usageRetryAt"] = _iso(datetime.now(UTC) + timedelta(minutes=4))
 
         if self.scenario == "high_usage":
-            pct = 96.4 if alias == "work" else 88.1
+            pct = {"work": 96.4, "personal": 88.1}.get(alias or "", 91.7)
             account["usage"] = {
                 "fiveHour": _window(pct, timedelta(minutes=41)),
                 "sevenDay": {
@@ -189,13 +207,18 @@ class MockCswapClient:
         return account
 
     def _payload(self) -> dict[str, Any]:
-        accounts = [self._account(alias) for alias in self._registered]
-        active = next((a["number"] for a in accounts if a["active"]), None)
+        accounts = [self._account(entry) for entry in self._accounts]
         return {
             "schemaVersion": 99 if self.scenario == "unknown_schema" else 1,
-            "activeAccountNumber": active,
+            "activeAccountNumber": self._active_number,
             "accounts": accounts,
         }
+
+    def _find(self, target: str | int | None) -> dict[str, Any] | None:
+        for entry in self._accounts:
+            if target in (entry["number"], entry["alias"], entry["email"]):
+                return entry
+        return None
 
     # -- backend protocol ---------------------------------------------------
 
@@ -208,33 +231,35 @@ class MockCswapClient:
 
     def status(self) -> ActiveStatus:
         self.calls.append("status")
-        if not self._registered:
+        active = self._find(self._active_number)
+        if active is None:
             return ActiveStatus.parse(
                 {
                     "schemaVersion": 1,
                     "active": {"email": self._signed_in_email, "managed": False},
                 }
             )
-        email = PERSONAL_EMAIL if self._active_alias == "personal" else WORK_EMAIL
         return ActiveStatus.parse(
-            {"schemaVersion": 1, "active": {"email": email, "managed": True}}
+            {"schemaVersion": 1, "active": {"email": active["email"], "managed": True}}
         )
 
-    def switch(self, alias: str, *, fallback_number: int | None = None) -> SwitchOutcome:
-        self.calls.append(f"switch:{alias}")
+    def switch(
+        self, alias: str | None, *, fallback_number: int | None = None
+    ) -> SwitchOutcome:
+        self.calls.append(f"switch:{alias if alias is not None else fallback_number}")
         if self.switch_delay:
             time.sleep(self.switch_delay)
         if self.fail_next_switch is not None:
             error, self.fail_next_switch = self.fail_next_switch, None
             raise error
-        if alias not in {"personal", "work"}:
+        entry = self._find(alias if alias is not None else fallback_number)
+        if entry is None:
             raise CswapError(CswapErrorKind.REPORTED, "No account matches that alias.")
-        self._active_alias = alias
-        email = PERSONAL_EMAIL if alias == "personal" else WORK_EMAIL
+        self._active_number = entry["number"]
         return SwitchOutcome.parse(
             {
                 "schemaVersion": 1,
-                "active": {"email": email, "number": 1 if alias == "personal" else 2},
+                "active": {"email": entry["email"], "number": entry["number"]},
             }
         )
 
@@ -243,19 +268,28 @@ class MockCswapClient:
         if self.fail_next_add is not None:
             error, self.fail_next_add = self.fail_next_add, None
             raise error
-        if alias in self._registered:
+        owner = self._find(alias)
+        if owner is not None and owner["email"] != self._signed_in_email:
             raise CswapError(
                 CswapErrorKind.REPORTED,
                 f"An account is already registered as '{alias}'.",
             )
-        self._registered.append(alias)
-        self._registered.sort(key=lambda a: 0 if a == "personal" else 1)
-        if len(self._registered) == 1:
-            self._active_alias = alias
+        existing = self._find(self._signed_in_email)
+        if existing is not None:
+            # cswap updates the slot of an address it already knows.
+            existing["alias"] = alias
+            return f"Updated the signed-in account as '{alias}'."
+        number = max((e["number"] for e in self._accounts), default=0) + 1
+        self._accounts.append({"number": number, "email": self._signed_in_email, "alias": alias})
+        if self._active_number is None:
+            self._active_number = number
         return f"Added the signed-in account as '{alias}'."
 
     def set_alias(self, number: int, alias: str) -> str:
         self.calls.append(f"alias:{number}:{alias}")
+        entry = self._find(number)
+        if entry is not None:
+            entry["alias"] = alias
         return f"Account {number} is now aliased '{alias}'."
 
     def build_run_command(self, number: int) -> list[str]:

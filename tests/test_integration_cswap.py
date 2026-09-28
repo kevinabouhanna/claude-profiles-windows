@@ -27,7 +27,7 @@ from datetime import datetime
 
 import pytest
 
-from claude_profiles.models import DEFAULT_PROFILES, UsageStatus
+from claude_profiles.models import UsageStatus, profiles_for
 from claude_profiles.services.cswap_client import (
     CswapClient,
     CswapError,
@@ -232,22 +232,21 @@ def test_status_and_list_agree_on_the_active_account(client, accounts):
 # --- this machine's setup -------------------------------------------------
 
 
-def test_the_configured_profiles_resolve_to_real_accounts(accounts):
+def test_every_registered_account_becomes_a_profile(accounts):
     """Checks this installation, not just the contract."""
-    missing = [p.name for p in DEFAULT_PROFILES if accounts.by_alias(p.alias) is None]
-    if missing:
-        pytest.skip(f"not set up yet: {', '.join(missing)}")
-    for profile in DEFAULT_PROFILES:
-        account = accounts.by_alias(profile.alias)
-        assert account is not None
-        assert account.number is not None
+    if not accounts.accounts:
+        pytest.skip("no accounts registered with claude-swap yet")
+    profiles = profiles_for(accounts)
+    assert len(profiles) == len(accounts.accounts)
+    assert len({p.key for p in profiles}) == len(profiles), "profile keys must be unique"
+    for profile in profiles:
+        assert profile.number is not None
 
 
 def test_a_launch_command_can_be_built_for_each_profile(client, accounts):
     """build_run_command only assembles argv; it never spawns anything."""
-    for profile in DEFAULT_PROFILES:
-        account = accounts.by_alias(profile.alias)
-        if account is None or account.number is None:
+    for account in accounts.accounts:
+        if account.number is None:
             continue
         argv = client.build_run_command(account.number)
         assert argv[1:] == ["run", str(account.number)]

@@ -1,8 +1,8 @@
 """Profile state, switch orchestration, and the activity log.
 
-This is the only object the UI talks to. It maps configured aliases onto the
-accounts ``cswap list --json`` reports, owns the busy flag that disables switch
-controls, and records safe activity lines.
+This is the only object the UI talks to. It turns every account
+``cswap list --json`` reports into a profile - however many there are - owns
+the busy flag that disables switch controls, and records safe activity lines.
 
 The busy flag is always cleared in a ``finally`` block, so the UI returns to an
 enabled state after success, failure, and timeout alike.
@@ -12,20 +12,20 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from collections.abc import Iterable
 from datetime import datetime
 
 from PySide6.QtCore import QObject, Signal
 
 from ..models import (
-    DEFAULT_PROFILES,
     AccountList,
     ActiveStatus,
     ActivityEntry,
     Profile,
     ProfileState,
+    profile_name,
+    profiles_for,
 )
-from .cswap_client import CswapBackend, CswapError
+from .cswap_client import ALIAS_PATTERN, CswapBackend, CswapError
 from .settings_service import SettingsService
 
 
@@ -33,6 +33,9 @@ class ProfileService(QObject):
     """Owns per-profile state and every action the user can take on it."""
 
     statesChanged = Signal()
+    # The set of accounts changed (one added, removed or renamed), so views
+    # holding one widget per profile have to rebuild rather than update.
+    profilesChanged = Signal()
     busyChanged = Signal(bool)
     activityAdded = Signal(object)  # ActivityEntry
     switchSucceeded = Signal(str)  # profile key
@@ -45,16 +48,14 @@ class ProfileService(QObject):
         self,
         backend: CswapBackend,
         settings_service: SettingsService,
-        profiles: Iterable[Profile] = DEFAULT_PROFILES,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._backend = backend
         self._settings = settings_service
-        self._profiles = tuple(profiles)
-        self._states: dict[str, ProfileState] = {
-            p.key: ProfileState(profile=p) for p in self._profiles
-        }
+        # Empty until the first poll: profiles come from claude-swap, not config.
+        self._profiles: tuple[Profile, ...] = ()
+        self._states: dict[str, ProfileState] = {}
         self._busy = False
         self._busy_lock = threading.Lock()
         self._last_active_key: str | None = None
@@ -121,15 +122,7 @@ class ProfileService(QObject):
             self.schemaWarning.emit(accounts.schema_version)
 
         previously_active = self._last_active_key
-        for profile in self._profiles:
-            account = accounts.by_alias(profile.alias)
-            state = self._states[profile.key]
-            state.account = account
-            state.error = (
-                None
-                if account is not None
-                else f"No claude-swap account is aliased {profile.alias!r} yet."
-            )
+        profiles_changed = self._sync_profiles(accounts)
 
         active = self.active_state
         active_key = active.profile.key if active else None
@@ -146,6 +139,8 @@ class ProfileService(QObject):
         # Log the *transition*, not the condition. Logging on every poll filled
         # the capped history with one repeated line - at a two-minute interval
         # that is 30 an hour, which evicts every switch and error inside a day.
+        # An account that disappeared from claude-swap is not a recovery.
+        self._reauth_warned &= set(self._states)
         for state in self.states:
             key = state.profile.key
             if state.needs_reauth:
@@ -162,7 +157,38 @@ class ProfileService(QObject):
                 if state.account is not None:
                     self.log(f"{state.profile.name} is signed in again")
 
+        if profiles_changed:
+            self.profilesChanged.emit()
         self.statesChanged.emit()
+
+    def _sync_profiles(self, accounts: AccountList) -> bool:
+        """Rebuild profiles from ``accounts``. Returns True if the set changed.
+
+        Existing state objects are kept for accounts that are still present,
+        so a view holding one can keep rendering it until it rebuilds.
+        """
+        profiles = profiles_for(accounts)
+        changed = profiles != self._profiles
+        states: dict[str, ProfileState] = {}
+        for profile in profiles:
+            state = self._states.get(profile.key) or ProfileState(profile=profile)
+            state.profile = profile
+            state.account = self._account_for(accounts, profile)
+            state.error = None
+            states[profile.key] = state
+        self._profiles = profiles
+        self._states = states
+        return changed
+
+    @staticmethod
+    def _account_for(accounts: AccountList, profile: Profile):
+        if profile.alias:
+            account = accounts.by_alias(profile.alias)
+            if account is not None:
+                return account
+        if profile.number is not None:
+            return accounts.by_number(profile.number)
+        return None
 
     def apply_error(self, error: CswapError) -> None:
         """Record a failed refresh without discarding what is on screen.
@@ -206,8 +232,8 @@ class ProfileService(QObject):
         try:
             if state.account is None:
                 message = (
-                    f"{state.profile.name} is not registered with claude-swap yet. "
-                    f"Add it with: cswap add --alias {state.profile.alias}"
+                    f"{state.profile.name} is no longer registered with claude-swap. "
+                    "Add it again from the Accounts page."
                 )
                 self.log(message, level="error")
                 self.switchFailed.emit(key, message)
@@ -271,66 +297,76 @@ class ProfileService(QObject):
         self.last_status = status
         return status
 
-    def register_current_as(self, key: str) -> tuple[bool, str]:
-        """Register the signed-in Claude Code account under a profile's alias.
+    @staticmethod
+    def alias_problem(alias: str) -> str | None:
+        """Why ``alias`` cannot be used, or None if it can."""
+        if not alias:
+            return "Enter a name for the account, such as personal or work."
+        if not ALIAS_PATTERN.match(alias):
+            return (
+                "Use up to 32 lowercase letters, digits, dots, dashes or "
+                "underscores, starting with a letter or digit - and not only digits."
+            )
+        return None
+
+    def register_current_as(self, alias: str) -> tuple[bool, str]:
+        """Register the signed-in Claude Code account under ``alias``.
 
         Runs ``cswap add --alias <alias>``. No authentication happens here -
         signing in is something the user does in Claude Code beforehand.
         """
-        state = self._states.get(key)
-        if state is None:
-            return False, "Unknown profile."
+        problem = self.alias_problem(alias)
+        if problem is not None:
+            return False, problem
         if self._busy:
             return False, "Another action is still running."
 
+        name = profile_name(alias, None)
         self._set_busy(True)
         try:
             try:
-                self._backend.add_current_account(state.profile.alias)
+                self._backend.add_current_account(alias)
             except CswapError as exc:
                 message = exc.user_message
-                self.log(
-                    f"Could not register {state.profile.name} - {message}", level="error"
-                )
-                self.setupFailed.emit(key, message)
+                self.log(f"Could not register {name} - {message}", level="error")
+                self.setupFailed.emit(alias, message)
                 return False, message
 
             self.refresh_sync()
-            registered = self.state(key)
+            registered = self.state(alias)
             if registered is not None and registered.account is not None:
-                message = (
-                    f"Registered {registered.account.email} as {state.profile.name}."
-                )
+                message = f"Registered {registered.account.email} as {name}."
             else:
-                message = f"Registered the signed-in account as {state.profile.name}."
+                message = f"Registered the signed-in account as {name}."
             self.log(message)
-            self.setupSucceeded.emit(key, message)
+            self.setupSucceeded.emit(alias, message)
             return True, message
         finally:
             self._set_busy(False)
 
-    def assign_alias(self, number: int, key: str) -> tuple[bool, str]:
-        """Give an already-registered account this profile's alias."""
-        state = self._states.get(key)
-        if state is None:
-            return False, "Unknown profile."
+    def assign_alias(self, number: int, alias: str) -> tuple[bool, str]:
+        """Rename an already-registered account."""
+        problem = self.alias_problem(alias)
+        if problem is not None:
+            return False, problem
         if self._busy:
             return False, "Another action is still running."
 
+        name = profile_name(alias, None)
         self._set_busy(True)
         try:
             try:
-                self._backend.set_alias(number, state.profile.alias)
+                self._backend.set_alias(number, alias)
             except CswapError as exc:
                 message = exc.user_message
                 self.log(f"Could not set the alias - {message}", level="error")
-                self.setupFailed.emit(key, message)
+                self.setupFailed.emit(alias, message)
                 return False, message
 
             self.refresh_sync()
-            message = f"Account {number} is now {state.profile.name}."
+            message = f"Account {number} is now {name}."
             self.log(message)
-            self.setupSucceeded.emit(key, message)
+            self.setupSucceeded.emit(alias, message)
             return True, message
         finally:
             self._set_busy(False)

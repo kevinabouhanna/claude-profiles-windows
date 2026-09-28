@@ -2,8 +2,8 @@
 
 Organised by what the user came to do rather than by implementation detail:
 
-    Overview   both profiles, their usage, and a refresh      (top)
-    Accounts   which Claude account each profile uses          (top)
+    Overview   every account, its usage, and a refresh        (top)
+    Accounts   adding, renaming and re-registering accounts   (top)
     Activity   the safe, local history of what happened        (top)
     Privacy    what is and is not stored, and your data        (footer)
     Settings   General, Notifications, Keyboard shortcuts,     (footer)
@@ -21,6 +21,7 @@ from dataclasses import replace
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -57,8 +58,6 @@ ACTIVITY_LIMIT = 400
 PRIVACY_STORED = [
     "Your preferences: how often to check usage, alert thresholds, and whether "
     "start-up and global shortcuts are on.",
-    "The profile aliases (personal, work) used to address claude-swap. They are "
-    "not secrets.",
     "A short local history of status lines, with addresses masked and anything "
     "that looks like a token removed before it is saved.",
 ]
@@ -94,6 +93,7 @@ class MainWindow(QMainWindow):
     launchRequested = Signal(str)
     reloginRequested = Signal(str)
     setupRequested = Signal(str)
+    addAccountRequested = Signal()
     refreshRequested = Signal()
     settingsChanged = Signal(object)  # Settings
     clearHistoryRequested = Signal()
@@ -119,9 +119,8 @@ class MainWindow(QMainWindow):
         self._settings = settings
         self._accounts = None
         self._cards: dict[str, ProfileCard] = {}
-        self._profile_names = [s.profile.name for s in states]
 
-        self.setup_page = SetupPage(tuple(s.profile for s in states))
+        self.setup_page = SetupPage()
 
         self._nav = NavigationPane()
         self._stack = QStackedWidget()
@@ -171,19 +170,28 @@ class MainWindow(QMainWindow):
         self._banner = InfoBar("info")
         page.add(self._banner)
 
+        # Two columns, as many rows as there are accounts; the page scrolls.
         cards = QWidget()
-        row = QHBoxLayout(cards)
-        row.setContentsMargins(0, 4, 0, 0)
-        row.setSpacing(12)
-        for state in states:
-            card = ProfileCard(state, compact=False)
-            card.switchRequested.connect(self.switchRequested.emit)
-            card.launchRequested.connect(self.launchRequested.emit)
-            card.reloginRequested.connect(self.reloginRequested.emit)
-            card.setupRequested.connect(self.setupRequested.emit)
-            row.addWidget(card)
-            self._cards[state.profile.key] = card
+        self._cards_grid = QGridLayout(cards)
+        self._cards_grid.setContentsMargins(0, 4, 0, 0)
+        self._cards_grid.setHorizontalSpacing(12)
+        self._cards_grid.setVerticalSpacing(12)
+        self._cards_grid.setColumnStretch(0, 1)
+        self._cards_grid.setColumnStretch(1, 1)
         page.add(cards)
+
+        add_button = text_button("add_account", "Add an account")
+        add_button.clicked.connect(self.addAccountRequested.emit)
+        self._empty_card = page.add(
+            SettingsCard(
+                "people",
+                "No accounts yet",
+                "Sign in to Claude Code as each account you use and register it "
+                "here. Add as many as you have.",
+                add_button,
+            )
+        )
+        self.set_profiles(states)
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
@@ -363,13 +371,12 @@ class MainWindow(QMainWindow):
         self._hotkeys_toggle = ToggleSwitch()
         self._hotkeys_toggle.setChecked(settings.hotkeys_enabled)
         self._hotkeys_toggle.toggled.connect(self._emit_settings)
-        first, second = (self._profile_names + ["the first profile", "the second"])[:2]
         self._hotkeys_card = page.add(
             SettingsCard(
                 "keyboard",
                 "Global shortcuts",
-                f"Ctrl+Alt+1 switches to {first} and Ctrl+Alt+2 to {second}, "
-                "from any app.",
+                "Ctrl+Alt+1 to Ctrl+Alt+9 switch to your accounts in the order "
+                "the Overview shows them, from any app.",
                 self._hotkeys_toggle,
             )
         )
@@ -468,6 +475,25 @@ class MainWindow(QMainWindow):
             self.accountsTabShown.emit()
 
     # -- updates ------------------------------------------------------------
+
+    def set_profiles(self, states: tuple[ProfileState, ...]) -> None:
+        """Rebuild the Overview cards after an account is added or removed."""
+        while self._cards_grid.count():
+            item = self._cards_grid.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
+        self._cards.clear()
+
+        for index, state in enumerate(states):
+            card = ProfileCard(state, compact=False)
+            card.switchRequested.connect(self.switchRequested.emit)
+            card.launchRequested.connect(self.launchRequested.emit)
+            card.reloginRequested.connect(self.reloginRequested.emit)
+            card.setupRequested.connect(self.setupRequested.emit)
+            self._cards_grid.addWidget(card, index // 2, index % 2)
+            self._cards[state.profile.key] = card
+        self._empty_card.setVisible(not states)
 
     def update_states(self, states: tuple[ProfileState, ...]) -> None:
         for state in states:

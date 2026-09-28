@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +24,10 @@ from .buttons import icon_button, text_button
 from .profile_card import ProfileCard
 
 POPUP_WIDTH = 440
+# Header, status line and footer, plus the outer margins: everything in the
+# flyout that is not a card. Used to cap the card area to the screen.
+CHROME_HEIGHT = 150
+CARD_SPACING = 10
 
 
 class HintBanner(QFrame):
@@ -62,12 +67,13 @@ class HintBanner(QFrame):
 
 
 class CompactPopup(QWidget):
-    """Both profiles at a glance, with one-click actions."""
+    """Every account at a glance, with one-click actions."""
 
     switchRequested = Signal(str)
     launchRequested = Signal(str)
     reloginRequested = Signal(str)
     setupRequested = Signal(str)
+    addAccountRequested = Signal()
     refreshRequested = Signal()
     dashboardRequested = Signal()
     settingsRequested = Signal()
@@ -89,14 +95,10 @@ class CompactPopup(QWidget):
         layout.addWidget(self.banner)
 
         self._cards: dict[str, ProfileCard] = {}
-        for state in states:
-            card = ProfileCard(state, compact=True, parent=self)
-            card.switchRequested.connect(self.switchRequested.emit)
-            card.launchRequested.connect(self.launchRequested.emit)
-            card.reloginRequested.connect(self.reloginRequested.emit)
-            card.setupRequested.connect(self.setupRequested.emit)
-            layout.addWidget(card)
-            self._cards[state.profile.key] = card
+        self._max_cards_height = 560
+        layout.addWidget(self._build_cards_area())
+        layout.addWidget(self._build_empty_state())
+        self.set_profiles(states)
 
         layout.addLayout(self._build_status_row())
         layout.addLayout(self._build_footer())
@@ -112,6 +114,10 @@ class CompactPopup(QWidget):
         header.addWidget(title)
         header.addStretch(1)
 
+        add_button = icon_button("add_account", "Add an account")
+        add_button.clicked.connect(self.addAccountRequested.emit)
+        header.addWidget(add_button)
+
         self._refresh_button = icon_button("refresh", "Refresh now")
         self._refresh_button.clicked.connect(self.refreshRequested.emit)
         header.addWidget(self._refresh_button)
@@ -124,6 +130,46 @@ class CompactPopup(QWidget):
         close_button.clicked.connect(self.hide)
         header.addWidget(close_button)
         return header
+
+    def _build_cards_area(self) -> QScrollArea:
+        """Cards stack and grow; past the screen's height they scroll."""
+        host = QWidget()
+        host.setObjectName("popupCards")
+        host.setStyleSheet("#popupCards { background: transparent; }")
+        self._cards_layout = QVBoxLayout(host)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(CARD_SPACING)
+
+        area = QScrollArea()
+        area.setWidget(host)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        area.viewport().setAutoFillBackground(False)
+        self._cards_host = host
+        self._scroll = area
+        return area
+
+    def _build_empty_state(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("popupEmpty")
+        frame.setStyleSheet(theme.card_css("popupEmpty"))
+        column = QVBoxLayout(frame)
+        column.setContentsMargins(16, 14, 16, 14)
+        column.setSpacing(10)
+        text = QLabel(
+            "No accounts yet. Sign in to Claude Code as each account you use and "
+            "register it, and its usage appears here."
+        )
+        text.setWordWrap(True)
+        text.setStyleSheet(theme.text_css(theme.CAPTION, "secondary"))
+        column.addWidget(text)
+        button = text_button("add_account", "Add an account")
+        button.clicked.connect(self.addAccountRequested.emit)
+        column.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+        self._empty = frame
+        return frame
 
     def _build_status_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -180,11 +226,40 @@ class CompactPopup(QWidget):
 
     # -- updates ------------------------------------------------------------
 
+    def set_profiles(self, states: tuple[ProfileState, ...]) -> None:
+        """Rebuild the cards after an account is added, removed or renamed."""
+        for card in self._cards.values():
+            self._cards_layout.removeWidget(card)
+            card.deleteLater()
+        self._cards.clear()
+        for state in states:
+            card = ProfileCard(state, compact=True, parent=self._cards_host)
+            card.switchRequested.connect(self.switchRequested.emit)
+            card.launchRequested.connect(self.launchRequested.emit)
+            card.reloginRequested.connect(self.reloginRequested.emit)
+            card.setupRequested.connect(self.setupRequested.emit)
+            self._cards_layout.addWidget(card)
+            self._cards[state.profile.key] = card
+        self._scroll.setVisible(bool(states))
+        self._empty.setVisible(not states)
+        self._fit_cards()
+
+    def _fit_cards(self) -> None:
+        """Size the card area to its content, up to what the screen allows."""
+        if not self._cards:
+            return
+        content = self._cards_layout.sizeHint().height()
+        self._scroll.setFixedHeight(min(content, self._max_cards_height))
+        if self.isVisible():
+            self.adjustSize()
+
     def update_states(self, states: tuple[ProfileState, ...]) -> None:
         for state in states:
             card = self._cards.get(state.profile.key)
             if card is not None:
                 card.set_state(state)
+        # A card grows when a per-model row appears, so re-fit.
+        self._fit_cards()
 
     def set_busy(self, busy: bool) -> None:
         for card in self._cards.values():
@@ -203,9 +278,11 @@ class CompactPopup(QWidget):
 
     def show_near(self, anchor_point) -> None:
         """Place the flyout next to the tray icon, kept inside the screen."""
-        self.adjustSize()
         screen = QGuiApplication.screenAt(anchor_point) or QGuiApplication.primaryScreen()
         available = screen.availableGeometry()
+        self._max_cards_height = max(240, available.height() - CHROME_HEIGHT - 40)
+        self._fit_cards()
+        self.adjustSize()
 
         x = anchor_point.x() - self.width() // 2
         y = anchor_point.y() - self.height() - 12

@@ -22,7 +22,7 @@ Neither accepts a file path, so no code path can reach a credential file even by
                                        │
                         ┌──────────────▼───────────────┐
                         │       ProfileService         │  the only object the UI talks to
-                        │  alias → ProfileState        │
+                        │  accounts → profiles (any N) │
                         │  switch orchestration        │
                         │  activity log                │
                         └──────────────┬───────────────┘
@@ -46,7 +46,7 @@ Neither accepts a file path, so no code path can reach a credential file even by
 | `services/cswap_client.py` | Allowlisted invocation, JSON extraction, error envelopes. **The only module that spawns `cswap` with captured output.** |
 | `services/mock_cswap.py` | Drop-in backend producing synthetic payloads through the real parsers. |
 | `services/polling_service.py` | `PollingCoordinator` (pure Python: overlap guard + backoff) and a thin Qt shell. |
-| `services/profile_service.py` | Alias→state mapping, switch orchestration, busy flag, activity log. |
+| `services/profile_service.py` | Builds one profile per claude-swap account (any number), switch orchestration, busy flag, activity log. |
 | `services/redaction.py` | The single chokepoint for diagnostics. |
 | `services/settings_service.py` | ACL-locked JSON prefs and capped activity history. |
 | `services/process_launcher.py` | Opens a visible terminal; reads nothing back. |
