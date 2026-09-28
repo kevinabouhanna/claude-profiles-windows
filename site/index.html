@@ -395,6 +395,10 @@
 // scroll that behaves the same everywhere. The sticky nav is allowed for.
 (function () {
   var nav = document.querySelector(".nav");
+  // "instant" matters: the stylesheet's scroll-behavior: smooth would
+  // otherwise turn every step into a new browser animation that cancels the
+  // last, so the page would stutter or not move at all.
+  function jump(y) { window.scrollTo({ top: y, behavior: "instant" }); }
   function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
   document.addEventListener("click", function (event) {
     var link = event.target.closest('a[href^="#"]');
@@ -413,11 +417,11 @@
       if (id && link.classList.contains("skip")) target.focus({ preventScroll: true });
     }
     // A hidden tab gets no animation frames; there is nothing to watch, so jump.
-    if (document.hidden) { window.scrollTo(0, to); finish(); return; }
+    if (document.hidden) { jump(to); finish(); return; }
     function step(now) {
       if (start === null) start = now;
       var t = Math.min(1, (now - start) / duration);
-      window.scrollTo(0, from + (to - from) * ease(t));
+      jump(from + (to - from) * ease(t));
       if (t < 1) requestAnimationFrame(step);
       else finish();
     }
