@@ -45,8 +45,8 @@ usage in your notification area, however many you have. Switching is one click, 
 terminal locked to any account. It never touches your credentials itself.
 
 <div align="center">
-<img src="docs/images/flyout.png" alt="The compact tray flyout listing every account with usage bars and a switch button on each" width="360">
-<br><sub>Left-click the tray icon for the compact flyout.</sub>
+<img src="docs/images/tray.png" alt="The Claude Profiles icon in the Windows 11 taskbar with its flyout open, listing every account with usage bars and a switch button on each" width="360">
+<br><sub>The real tray icon and flyout on Windows 11. Left-click the icon to open it. Demo data.</sub>
 </div>
 
 ## Features

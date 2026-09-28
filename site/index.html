@@ -51,8 +51,8 @@
   "inLanguage": "en",
   "image": "https://kevinabouhanna.github.io/claude-profiles-windows/assets/logo-256.png",
   "screenshot": [
-    "https://kevinabouhanna.github.io/claude-profiles-windows/assets/shots/dashboard.png",
-    "https://kevinabouhanna.github.io/claude-profiles-windows/assets/shots/flyout.png"
+    "https://kevinabouhanna.github.io/claude-profiles-windows/assets/shots/tray.png",
+    "https://kevinabouhanna.github.io/claude-profiles-windows/assets/shots/dashboard.png"
   ],
   "featureList": [
     "Shows every Claude Code account's 5-hour and 7-day usage at once",
@@ -157,17 +157,10 @@
       <p class="meta"><span data-version>Latest release</span> · Windows 10 and 11 · MIT · one installer, <a href="https://github.com/realiti4/claude-swap">claude-swap</a> included</p>
     </div>
 
-    <div class="terminal" aria-label="Example output of cswap list, showing three accounts">
-      <div class="terminal__bar"><span></span><span></span><span></span><b>cswap list</b></div>
-<pre class="terminal__body"><span class="t-dim">&gt;</span> cswap list
-  <span class="t-dim">#  alias          5h    7d</span>
-  1  personal       42%   63%  <span class="t-accent">■ active</span>
-  2  work           <span class="t-warn">74%</span>   51%
-  3  side-project   12%   28%
-  4  client-acme    <span class="t-warn">91%</span>   66%
-
-<span class="t-dim">&gt;</span> <span class="t-accent">same thing, one click away ↓</span></pre>
-    </div>
+    <figure class="tray-shot">
+      <img src="assets/shots/tray.png" width="448" height="978" alt="The Claude Profiles icon in the Windows 11 taskbar, with its flyout open above it listing three accounts, Personal, Work and Side Project, each with 5-hour, 7-day and Opus usage bars">
+      <figcaption>The real tray icon and flyout on Windows 11. Demo data.</figcaption>
+    </figure>
   </div>
 
   <div class="wrap">
@@ -245,11 +238,6 @@
     <h2>Everything about your accounts, one click from the taskbar.</h2>
 
     <div class="feature-split">
-      <figure class="shot shot--narrow">
-        <img src="assets/shots/flyout.png" width="440" height="896" alt="The tray flyout listing Personal, Work and Side Project with usage bars and a switch button on each" loading="lazy">
-        <figcaption>Left-click the tray icon. Demo data.</figcaption>
-      </figure>
-
       <ul class="features">
         <li class="feature">
           <h3>Every account at a glance</h3>
@@ -402,6 +390,38 @@
 </footer>
 
 <script>
+// Glide to in-page sections. CSS scroll-behavior is skipped by browsers that
+// report reduced motion, which made the nav jump; this is a short, eased
+// scroll that behaves the same everywhere. The sticky nav is allowed for.
+(function () {
+  var nav = document.querySelector(".nav");
+  function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest('a[href^="#"]');
+    if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+    var id = link.getAttribute("href").slice(1);
+    var target = id ? document.getElementById(id) : document.body;
+    if (!target) return;
+    event.preventDefault();
+    var offset = id && id !== "top" ? nav.offsetHeight + 16 : 0;
+    var from = window.scrollY;
+    var to = Math.max(0, target.getBoundingClientRect().top + from - offset);
+    var duration = Math.min(900, Math.max(350, Math.abs(to - from) / 4));
+    var start = null;
+    function step(now) {
+      if (start === null) start = now;
+      var t = Math.min(1, (now - start) / duration);
+      window.scrollTo(0, from + (to - from) * ease(t));
+      if (t < 1) requestAnimationFrame(step);
+      else {
+        history.pushState(null, "", "#" + id);
+        if (id && link.classList.contains("skip")) target.focus({ preventScroll: true });
+      }
+    }
+    requestAnimationFrame(step);
+  });
+})();
+
 // Show the latest version next to the download buttons. The links already
 // point at the latest release, so the page works the same if this fails.
 (function () {
