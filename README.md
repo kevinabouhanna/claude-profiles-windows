@@ -81,7 +81,8 @@ terminal locked to any account. It never touches your credentials itself.
 
 Claude Profiles is a presentation layer on top of
 **[claude-swap](https://github.com/realiti4/claude-swap)** (`cswap`), which does the actual account
-storage, switching and quota fetching. The app runs `cswap` as a subprocess, parses its JSON output,
+storage, switching and quota fetching. **The installer includes claude-swap**, so there is nothing
+else to set up. The app runs that bundled `cswap` as a separate program, parses its JSON output,
 and draws it.
 
 ```
@@ -94,8 +95,9 @@ and draws it.
             cswap      ── owns your credentials; Claude Profiles never does
 ```
 
-This split is deliberate: the app contains no OAuth logic, no token parsing, no credential backups,
-and no writes to `.credentials.json`. See [`docs/architecture.md`](docs/architecture.md) for the
+This split is deliberate: the app itself contains no OAuth logic, no token parsing, no credential
+backups, and no writes to `.credentials.json`. The bundled claude-swap is pinned to the version the
+app was tested against, and is updated when you install a newer Claude Profiles. See [`docs/architecture.md`](docs/architecture.md) for the
 details.
 
 ---
@@ -105,28 +107,23 @@ details.
 ### Prerequisites
 
 - Windows 10 or 11 (64-bit)
-- [uv](https://docs.astral.sh/uv/) (or pipx) to install claude-swap
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), signed in to at least one account
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
-### 1. Install claude-swap
+That's all. claude-swap comes with the installer.
 
-```powershell
-uv tool install claude-swap
-# or: pipx install claude-swap
-cswap --version
-```
+### 1. Install Claude Profiles
 
-If `cswap` is not found afterwards, make sure `%USERPROFILE%\.local\bin` is on your `PATH`.
+Download **[`ClaudeProfiles-Setup.exe`](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe)**
+from the [latest release](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest) and run it.
 
-### 2. Install Claude Profiles
-
-Download **`ClaudeProfiles-Setup-X.Y.Z.exe`** from the
-[latest release](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest) and run it.
-
+- It includes claude-swap, so this is the only thing to install.
 - It installs for your user only, to `%LOCALAPPDATA%\Programs\Claude Profiles`. **No administrator
   rights are needed.**
 - It adds a Start menu entry and an uninstaller under *Settings > Apps*.
-- To upgrade, run a newer installer. It closes the running app and replaces it in place.
+- To upgrade, run a newer installer. It closes the running app and replaces it, and the bundled
+  claude-swap with it, in place.
+- Optionally, tick **Add the bundled claude-swap (cswap) to my PATH** to use `cswap` from a
+  terminal too. It is off by default and removed again on uninstall.
 
 The tray icon appears in the notification area. Left-click it for the compact view.
 
@@ -137,7 +134,7 @@ The tray icon appears in the notification area. Left-click it for the compact vi
 > you can check yourself:
 >
 > ```powershell
-> gh attestation verify ClaudeProfiles-Setup-0.1.0.exe --repo kevinabouhanna/claude-profiles-windows
+> gh attestation verify ClaudeProfiles-Setup.exe --repo kevinabouhanna/claude-profiles-windows
 > ```
 
 <details>
@@ -146,7 +143,8 @@ The tray icon appears in the notification area. Left-click it for the compact vi
 **Portable:** download `ClaudeProfiles-X.Y.Z-win-x64-portable.zip` from the same release, unzip it
 anywhere, and run `ClaudeProfiles.exe`.
 
-**From source** (Python 3.12 or newer):
+**From source** (Python 3.12 or newer). A source checkout does not include claude-swap, so install
+it first with `uv tool install claude-swap`:
 
 ```powershell
 git clone https://github.com/kevinabouhanna/claude-profiles-windows.git
@@ -165,7 +163,7 @@ uv pip install -e .
 Windows 11 hides new tray icons by default. To keep this one visible, go to **Settings >
 Personalisation > Taskbar > Other system tray icons** and switch on *Claude Profiles*.
 
-### 3. Register your accounts
+### 2. Register your accounts
 
 **You can do this inside the app.** Choose **Add an account** from the tray menu or the flyout. For
 each account you use, as many as you have:
@@ -180,6 +178,8 @@ account claude-swap knows about.
 
 <details>
 <summary>The equivalent terminal commands, if you prefer</summary>
+
+These need `cswap` on your PATH: tick the installer's PATH option, or install claude-swap yourself.
 
 ```powershell
 claude                      # sign in as the first account, then exit
@@ -247,7 +247,8 @@ try to automate authentication in the background.
 ## Privacy and security
 
 - **Local only.** The app opens no network connections. Its only external interaction is running
-  the local `cswap` executable and parsing the JSON it prints.
+  its bundled `cswap` and parsing the JSON it prints. Fetching usage is claude-swap's job, and the
+  bundled copy has its PyPI update check turned off.
 - **No credential access.** `%USERPROFILE%\.claude\.credentials.json`, `.claude-swap-backup\`, and
   Claude Code session files are never read, written, copied, exported, or backed up.
 - **Allowlisted commands.** Only `cswap list`, `status`, `switch`, `run`, `add`, and `alias` can be
@@ -273,8 +274,8 @@ history** buttons. See [`docs/privacy.md`](docs/privacy.md) for the full data in
 Use *Settings > Apps > Installed apps > Claude Profiles > Uninstall*. It stops the app and removes
 the program, its Start menu and Startup shortcuts, and its icon cache. Your preferences in
 `%LOCALAPPDATA%\ClaudeProfiles` are kept. Delete that folder, or use **Clear local activity
-history** on the Privacy page first, if you want them gone too. claude-swap and your registered
-accounts are not touched.
+history** on the Privacy page first, if you want them gone too. Your registered accounts, which
+claude-swap keeps in `%USERPROFILE%\.claude-swap-backup`, are not touched.
 
 ---
 
@@ -294,13 +295,15 @@ installed (`winget install JRSoftware.InnoSetup`):
 ```powershell
 uv pip install -r requirements-dev.txt
 powershell -ExecutionPolicy Bypass -File tools\build_release.ps1
+uv pip install --require-hashes -r tools\cswap\requirements.txt   # the claude-swap to bundle
+powershell -ExecutionPolicy Bypass -File tools\build_release.ps1
 # -> release\ClaudeProfiles-Setup-X.Y.Z.exe, the portable zip, and SHA256SUMS.txt
 ```
 
-The script renders the icon, freezes the app with PyInstaller, runs `tools\verify_build.py` against
-the result, then packs the zip and compiles [`installer/ClaudeProfiles.iss`](installer/ClaudeProfiles.iss).
-The build bundles the UI only, so you still need `cswap` installed separately, because credential
-handling deliberately stays outside this application.
+The script renders the icon and freezes the app with PyInstaller. It then freezes the pinned
+claude-swap ([`cswap.spec`](cswap.spec)) into the app's `cswap` folder and writes
+`THIRD-PARTY-NOTICES.txt`. It runs `tools\verify_build.py` against the result, then packs the zip
+and compiles [`installer/ClaudeProfiles.iss`](installer/ClaudeProfiles.iss).
 
 <details>
 <summary>Why the build is set up this way</summary>
@@ -339,8 +342,9 @@ Issues and pull requests are welcome.
 Claude Profiles would not exist without these projects. Thank you to their authors.
 
 - **[realiti4/claude-swap](https://github.com/realiti4/claude-swap)** (MIT) is the engine underneath.
-  It handles account storage, switching, isolated sessions and quota fetching. Claude Profiles
-  runs it as a subprocess; **no code is copied**. If this app is useful to you, go star that repo.
+  It handles account storage, switching, isolated sessions and quota fetching. The installer
+  bundles it, unmodified apart from its self-update check, as a separate `cswap.exe` that Claude
+  Profiles runs as a subprocess. If this app is useful to you, go star that repo.
 - **[jens-duttke/usage-monitor-for-claude](https://github.com/jens-duttke/usage-monitor-for-claude)**
   (MIT) was the reference for Windows tray behaviour, adaptive polling and privacy practice.
   **No code copied.**
@@ -350,8 +354,10 @@ Claude Profiles would not exist without these projects. Thank you to their autho
 - Built with **[PySide6 / Qt for Python](https://doc.qt.io/qtforpython-6/)** and packaged with
   **[PyInstaller](https://pyinstaller.org/)**.
 
-No source from these projects is included here, so no third-party notices are bundled. Their licences
-were checked before implementation.
+No source from these projects is copied into this repository. The installer ships claude-swap and
+its dependencies, Qt through PySide6, and the Python runtime, so every release includes
+`THIRD-PARTY-NOTICES.txt` with each of their licences, generated by
+[`tools/third_party_notices.py`](tools/third_party_notices.py).
 
 ## Licence
 

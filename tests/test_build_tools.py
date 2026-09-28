@@ -99,5 +99,7 @@ def test_verification_writes_nothing_into_the_build(verify_build):
     would then have shipped inside every release.
     """
     source = (ROOT / "tools" / "verify_build.py").read_text(encoding="utf-8")
-    assert "exe.parent" not in source
+    main_body = source[source.index("def main"):]
+    assert "_verify_data" not in source
+    assert "exe.parent" not in main_body, "the data dir must not sit beside the exe"
     assert "TemporaryDirectory" in source

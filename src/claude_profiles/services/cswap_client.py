@@ -132,8 +132,46 @@ def _extract_json(text: str) -> Any:
     return json.loads(stripped[start : end + 1])
 
 
+def missing_cswap_advice() -> str:
+    """What to tell someone whose claude-swap cannot be found.
+
+    An installed Claude Profiles ships its own copy, so if that is missing the
+    install is damaged; only a source checkout needs claude-swap separately.
+    """
+    if getattr(sys, "frozen", False):
+        return (
+            "The claude-swap copy bundled with Claude Profiles is missing. "
+            "Reinstall Claude Profiles to restore it."
+        )
+    return (
+        "claude-swap is not installed or not on PATH. "
+        "Install it with: uv tool install claude-swap"
+    )
+
+
+def bundled_cswap() -> Path | None:
+    """The claude-swap build shipped inside the installed app, if any.
+
+    The installer puts it at ``<app folder>\\cswap\\cswap.exe``, pinned to the
+    version the app's JSON parsing was tested against. Only a frozen build has
+    one; a source checkout uses whatever claude-swap is installed.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    candidate = Path(sys.executable).resolve().parent / "cswap" / "cswap.exe"
+    return candidate if candidate.is_file() else None
+
+
 def find_cswap() -> str | None:
-    """Locate the cswap executable without trusting an arbitrary PATH entry."""
+    """Locate the cswap executable without trusting an arbitrary PATH entry.
+
+    The bundled copy wins over one on PATH: it is the version this build was
+    tested against, and both read the same account store, so preferring it
+    changes nothing about which accounts are seen.
+    """
+    bundled = bundled_cswap()
+    if bundled is not None:
+        return str(bundled)
     found = shutil.which("cswap")
     if found:
         return found
@@ -200,8 +238,7 @@ class CswapClient:
         if self._executable is None:
             raise CswapError(
                 CswapErrorKind.NOT_INSTALLED,
-                "claude-swap is not installed or not on PATH. "
-                "Install it with: uv tool install claude-swap",
+                missing_cswap_advice(),
             )
 
         argv = [self._executable, *args]
@@ -323,8 +360,7 @@ class CswapClient:
         if self._executable is None:
             raise CswapError(
                 CswapErrorKind.NOT_INSTALLED,
-                "claude-swap is not installed or not on PATH. "
-                "Install it with: uv tool install claude-swap",
+                missing_cswap_advice(),
             )
 
         argv = [self._executable, *args]

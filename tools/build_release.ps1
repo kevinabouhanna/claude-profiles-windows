@@ -70,6 +70,17 @@ $Exe = Join-Path $AppDir "ClaudeProfiles.exe"
 $Stamped = (Get-Item $Exe).VersionInfo.ProductVersion
 if ($Stamped -ne $Version) { throw "exe reports version '$Stamped', expected '$Version'" }
 
+Step "Bundling claude-swap"
+# Built into the app's folder as cswap\cswap.exe, so one installer is all a
+# user needs. The pinned version comes from tools\cswap\requirements.in.
+Invoke-Checked $Python @("-m", "PyInstaller", "--noconfirm", "--distpath", $AppDir, "cswap.spec")
+$Pinned = (Select-String -Path "tools\cswap\requirements.in" -Pattern '^claude-swap==(.+)$').Matches[0].Groups[1].Value
+$Reported = (& (Join-Path $AppDir "cswap\cswap.exe") --version).Trim()
+if ($LASTEXITCODE -ne 0 -or $Reported -ne "cswap $Pinned") { throw "bundled cswap reports '$Reported', expected 'cswap $Pinned'" }
+
+Step "Writing third-party notices"
+Invoke-Checked $Python @("tools\third_party_notices.py", (Join-Path $AppDir "THIRD-PARTY-NOTICES.txt"))
+
 Step "Verifying the build"
 Invoke-Checked $Python @("tools\verify_build.py", $Exe)
 

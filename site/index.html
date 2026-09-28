@@ -46,7 +46,7 @@
   "downloadUrl": "https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest",
   "installUrl": "https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe",
   "license": "https://opensource.org/licenses/MIT",
-  "softwareRequirements": "Windows 10 or 11 (64-bit), Claude Code, and claude-swap.",
+  "softwareRequirements": "Windows 10 or 11 (64-bit) and Claude Code. claude-swap is included.",
   "isAccessibleForFree": true,
   "inLanguage": "en",
   "image": "https://kevinabouhanna.github.io/claude-profiles-windows/assets/logo-256.png",
@@ -76,7 +76,12 @@
     {
       "@type": "Question",
       "name": "How do I use more than one Claude Code account on Windows?",
-      "acceptedAnswer": { "@type": "Answer", "text": "Install claude-swap, which stores each Claude Code login and swaps between them, then install Claude Profiles on top of it. Sign in to Claude Code as each account once and give it a name. From then on, switching is one click in the tray, and every account's usage is visible at a glance." }
+      "acceptedAnswer": { "@type": "Answer", "text": "Install Claude Profiles. Sign in to Claude Code as each account once and give it a name. From then on, switching is one click in the tray, and every account's usage is visible at a glance. The installer includes claude-swap, the tool that stores each login and swaps between them, so there is nothing else to set up." }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need to install claude-swap separately?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. The installer includes claude-swap, pinned to the version Claude Profiles was tested with, and updates it when you install a newer release. The only other thing you need is Claude Code itself." }
     },
     {
       "@type": "Question",
@@ -149,7 +154,7 @@
         <a class="btn" href="https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe" data-download>Download for Windows</a>
         <a class="btn btn--ghost" href="https://github.com/kevinabouhanna/claude-profiles-windows">View on GitHub</a>
       </div>
-      <p class="meta"><span data-version>Latest release</span> · Windows 10 and 11 · MIT · needs <a href="https://github.com/realiti4/claude-swap">claude-swap</a></p>
+      <p class="meta"><span data-version>Latest release</span> · Windows 10 and 11 · MIT · one installer, <a href="https://github.com/realiti4/claude-swap">claude-swap</a> included</p>
     </div>
 
     <div class="terminal" aria-label="Example output of cswap list, showing three accounts">
@@ -206,29 +211,28 @@
 <section class="section section--how" id="how">
   <div class="wrap">
     <p class="kicker">How it works</p>
-    <h2>Three steps, then it stays out of your way.</h2>
+    <h2>One installer, then it stays out of your way.</h2>
     <ol class="steps">
       <li class="step">
         <span class="step__num">1</span>
         <div>
-          <h3>Install claude-swap</h3>
-          <p>The command-line tool that stores each Claude Code login and swaps between them. Claude Profiles is the window onto it.</p>
-          <pre class="code"><code>uv tool install claude-swap</code></pre>
+          <h3>Install Claude Profiles</h3>
+          <p>One installer, nothing else to set up. It includes claude-swap, installs for your user only with no administrator prompt, and adds itself to the Start menu and your tray.</p>
+          <a class="btn btn--small" href="https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe" data-download>Download the installer</a>
         </div>
       </li>
       <li class="step">
         <span class="step__num">2</span>
         <div>
-          <h3>Install Claude Profiles</h3>
-          <p>Run the installer. It installs for your user only, so there is no administrator prompt, and it adds itself to the Start menu and your tray.</p>
-          <a class="btn btn--small" href="https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe" data-download>Download the installer</a>
+          <h3>Add each account</h3>
+          <p>Choose <b>Add an account</b>, sign in to Claude Code as that account, and give it a name like <code>personal</code>, <code>work</code> or <code>client-acme</code>. Repeat for every account you use.</p>
         </div>
       </li>
       <li class="step">
         <span class="step__num">3</span>
         <div>
-          <h3>Add each account</h3>
-          <p>Choose <b>Add an account</b>, sign in to Claude Code as that account, and give it a name like <code>personal</code>, <code>work</code> or <code>client-acme</code>. Repeat for every account you use.</p>
+          <h3>Switch from the tray</h3>
+          <p>Left-click the tray icon to see every account's usage, then switch with one click, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd> to <kbd>9</kbd> if you turn the shortcuts on.</p>
         </div>
       </li>
     </ol>
@@ -297,7 +301,7 @@
     </div>
     <ul class="checklist">
       <li><b>No credential access.</b> Your <code>.credentials.json</code>, tokens and session files are never read or written.</li>
-      <li><b>No network code.</b> The only thing it talks to is the local <code>cswap</code> program.</li>
+      <li><b>No network code.</b> The only thing it talks to is its bundled copy of claude-swap, which fetches your usage.</li>
       <li><b>A short list of commands.</b> Destructive ones such as remove, purge and export are refused.</li>
       <li><b>No telemetry.</b> No analytics, crash reports, cloud sync or remote settings.</li>
       <li><b>Redacted history.</b> The local activity log masks addresses and strips anything that looks like a token.</li>
@@ -315,7 +319,11 @@
     <div class="faq__list">
       <details>
         <summary>How do I use more than one Claude Code account on Windows?</summary>
-        <p>Install claude-swap, which stores each Claude Code login and swaps between them, then install Claude Profiles on top of it. Sign in to Claude Code as each account once and give it a name. From then on, switching is one click in the tray, and every account's usage is visible at a glance.</p>
+        <p>Install Claude Profiles. Sign in to Claude Code as each account once and give it a name. From then on, switching is one click in the tray, and every account's usage is visible at a glance. The installer includes claude-swap, the tool that stores each login and swaps between them, so there is nothing else to set up.</p>
+      </details>
+      <details>
+        <summary>Do I need to install claude-swap separately?</summary>
+        <p>No. The installer includes claude-swap, pinned to the version Claude Profiles was tested with, and updates it when you install a newer release. The only other thing you need is Claude Code itself.</p>
       </details>
       <details>
         <summary>How many accounts can I add?</summary>
@@ -352,7 +360,7 @@
 <section class="section section--download" id="download">
   <div class="wrap download">
     <h2>Stop logging out to log back in.</h2>
-    <p class="section__lede">Free for Windows 10 and 11. Installs for your user, no administrator rights needed. Needs <a href="https://github.com/realiti4/claude-swap">claude-swap</a> and <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>.</p>
+    <p class="section__lede">Free for Windows 10 and 11. One installer with <a href="https://github.com/realiti4/claude-swap">claude-swap</a> built in, no administrator rights needed. All you need besides is <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>.</p>
     <div class="cta-pair">
       <a class="btn btn--invert" href="https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe" data-download>Download for Windows</a>
       <a class="btn btn--ghost-invert" href="https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest">All downloads and checksums</a>
@@ -375,7 +383,7 @@
     <div>
       <h3>Built on</h3>
       <ul class="footer__links">
-        <li><a href="https://github.com/realiti4/claude-swap">claude-swap</a> by realiti4, which does all the account work</li>
+        <li><a href="https://github.com/realiti4/claude-swap">claude-swap</a> by realiti4, which does all the account work and ships inside the installer</li>
         <li><a href="https://github.com/jens-duttke/usage-monitor-for-claude">Usage Monitor for Claude</a> by Jens Duttke, the reference for tray behaviour</li>
         <li><a href="https://github.com/hamed-elfayome/Claude-Usage-Tracker">Claude Usage Tracker</a> by Hamed Elfayome, the reference for multi-profile design</li>
       </ul>

@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import html
 import sys
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from .resources.icons import app_icon
-from .services.cswap_client import CswapBackend, CswapClient, find_cswap
+from .services.cswap_client import (
+    CswapBackend,
+    CswapClient,
+    find_cswap,
+    missing_cswap_advice,
+)
 from .services.mock_cswap import SCENARIOS, MockCswapClient
 from .services.settings_service import SettingsService
 from .tray import TrayController
@@ -102,8 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         QMessageBox.warning(
             None,
             "claude-swap not found",
-            "Claude Profiles could not find the <b>cswap</b> command.<br><br>"
-            "Install it with:<br><code>uv tool install claude-swap</code><br><br>"
+            f"{html.escape(missing_cswap_advice())}<br><br>"
             "You can also explore the interface with synthetic data by running "
             "<code>claude-profiles --mock</code>.",
         )

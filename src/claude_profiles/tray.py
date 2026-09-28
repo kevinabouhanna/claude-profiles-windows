@@ -25,7 +25,7 @@ from .models import AccountList, ActivityEntry, Profile, ProfileState, profile_n
 from .resources import fluent_icons
 from .resources.icons import tray_icon
 from .services import autostart
-from .services.cswap_client import CswapBackend, CswapError
+from .services.cswap_client import CswapBackend, CswapError, missing_cswap_advice
 from .services.hotkeys import MAX_SHORTCUTS, HotkeyManager
 from .services.notification_service import NotificationService
 from .services.polling_service import PollingService, effective_interval
@@ -213,7 +213,7 @@ class TrayController(QObject):
     def start(self) -> None:
         if not self._backend.is_available:
             self.profiles.log(
-                "claude-swap was not found. Install it with: uv tool install claude-swap",
+                missing_cswap_advice(),
                 level="error",
             )
         # Windows integration spawns PowerShell (0.5-3s cold) and may render

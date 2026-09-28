@@ -34,7 +34,7 @@ Neither accepts a file path, so no code path can reach a credential file even by
                         │
                         ▼
                   ┌───────────┐
-                  │   cswap   │  ← the only external dependency
+                  │   cswap   │  ← bundled in the installer; the only external program
                   └───────────┘
 ```
 
@@ -53,6 +53,23 @@ Neither accepts a file path, so no code path can reach a credential file even by
 | `services/notification_service.py` | Tray balloons plus the threshold latch. |
 | `services/autostart.py`, `hotkeys.py` | Windows integration. Hotkeys are opt-in; start-at-sign-in defaults on (see the note in `docs/development.md`). |
 | `widgets/`, `main_window.py`, `tray.py` | Presentation only; no subprocess or file access. |
+
+## Bundling claude-swap
+
+The installer includes a frozen claude-swap at `<app folder>\cswap\cswap.exe`, so users install one
+thing. It stays a **separate program**: the app still reaches it only through `CswapClient`'s
+allowlist, as a subprocess, exactly as it would reach one installed with uv. Nothing about the trust
+boundary changes; only who puts `cswap.exe` on disk.
+
+- `find_cswap()` prefers the bundled copy in a frozen build, because it is the version the parsing
+  below was verified against. Both copies read the same `~\.claude-swap-backup` store, so
+  preferring it never changes which accounts are seen. A source checkout falls back to PATH.
+- The version is pinned in `tools/cswap/requirements.in` and hash-locked in `requirements.txt`.
+  Raising it means re-running the contract tests (`pytest --run-integration`) against the new
+  version and updating the version named in the next section, which a test checks.
+- `tools/cswap/cswap_entry.py` runs claude-swap's CLI unchanged except for switching off its PyPI
+  update notice and `--upgrade`, which do not apply to a frozen copy.
+- `THIRD-PARTY-NOTICES.txt` ships its licence and those of its dependencies.
 
 ## The claude-swap contract, as verified
 

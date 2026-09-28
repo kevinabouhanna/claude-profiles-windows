@@ -63,9 +63,18 @@ entries and trimmed on write.
 ## Network activity
 
 **None.** The application imports no networking library and opens no sockets. Its only external
-interaction is executing the local `cswap` binary and reading the JSON it prints to stdout.
+interaction is executing `cswap` and reading the JSON it prints to stdout.
 
 Any network traffic involved in fetching quota data is made by claude-swap, not by this app.
+
+### The bundled claude-swap
+
+The installer includes claude-swap, in the `cswap` folder beside the app, so it is the copy the app
+runs. It is claude-swap's own code, pinned to a tested version and frozen into `cswap.exe`, with
+one change: its once-a-day check of PyPI for a newer version is switched off, because the bundled
+copy is updated by installing a newer Claude Profiles. Its credentials and account data live where
+claude-swap always keeps them, in `%USERPROFILE%\.claude-swap-backup\`, and are shared with any
+claude-swap you installed yourself. Uninstalling Claude Profiles leaves them in place.
 
 ## Redaction
 

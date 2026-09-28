@@ -127,3 +127,12 @@ def test_sitemap_and_robots_point_at_the_canonical_url(page):
     canonical = re.search(r'<link rel="canonical" href="([^"]+)"', page).group(1)
     assert canonical in (SITE / "sitemap.xml").read_text(encoding="utf-8")
     assert canonical + "sitemap.xml" in (SITE / "robots.txt").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", ["index.html", "llms.txt"])
+def test_the_site_never_asks_for_a_separate_claude_swap_install(name):
+    """claude-swap ships inside the installer; one download is the promise."""
+    text = (SITE / name).read_text(encoding="utf-8")
+    assert "uv tool install" not in text
+    assert "pipx install" not in text
+    assert "included" in text.lower() or "bundle" in text.lower()

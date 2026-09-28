@@ -77,6 +77,26 @@ def check_no_console(pid: int) -> None:
     print("  ok  no console attached to the process")
 
 
+def check_bundled_cswap(exe: Path) -> None:
+    """The installer promises claude-swap is included; prove it runs.
+
+    ``--version`` only: it reads no accounts, so verifying a build can never
+    touch the developer's real claude-swap data.
+    """
+    cswap = exe.parent / "cswap" / "cswap.exe"
+    if not cswap.is_file():
+        raise Failure(f"bundled claude-swap missing: {cswap}")
+    result = subprocess.run(
+        [str(cswap), "--version"], capture_output=True, text=True, timeout=60, check=False
+    )
+    if result.returncode != 0 or not result.stdout.startswith("cswap "):
+        raise Failure(
+            f"bundled cswap did not run (exit {result.returncode}):\n"
+            f"{(result.stdout + result.stderr)[:2000]}"
+        )
+    print(f"  ok  bundled claude-swap runs ({result.stdout.strip()})")
+
+
 def check_starts_and_works(exe: Path, data_dir: Path) -> None:
     for stale in ("activity.jsonl", "settings.json", "err.txt"):
         (data_dir / stale).unlink(missing_ok=True)
@@ -141,6 +161,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         check_subsystem(exe)
+        check_bundled_cswap(exe)
         # A temp folder, not one beside the exe: that folder is what gets
         # zipped and installed, so anything written there would ship.
         with tempfile.TemporaryDirectory(

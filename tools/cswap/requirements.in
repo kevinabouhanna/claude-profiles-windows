@@ -1,0 +1,7 @@
+# claude-swap, frozen into the installer as cswap\cswap.exe.
+#
+# Pinned: the app parses its JSON output, and each version it ships with is
+# checked against the contract tests (pytest --run-integration) first.
+# Regenerate the locked file after changing this:
+#   uv pip compile tools/cswap/requirements.in --generate-hashes --universal -o tools/cswap/requirements.txt
+claude-swap==0.26.0

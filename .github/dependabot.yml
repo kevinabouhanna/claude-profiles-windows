@@ -9,3 +9,10 @@ updates:
     directory: /
     schedule:
       interval: monthly
+
+  # The claude-swap bundled into the installer. Merge only after re-running
+  # the contract tests against the new version (docs/releasing.md).
+  - package-ecosystem: pip
+    directory: /tools/cswap
+    schedule:
+      interval: monthly

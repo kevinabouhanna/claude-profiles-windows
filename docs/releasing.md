@@ -50,14 +50,32 @@ Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/re
 
 1. Refuses to continue unless the tag matches `__version__` and the changelog has a section for it.
 2. Runs lint and the full test suite.
-3. Builds with `tools/build_release.ps1`: icon, PyInstaller, `verify_build.py`, portable zip,
-   Inno Setup installer, and `SHA256SUMS.txt`.
+3. Builds with `tools/build_release.ps1`: icon, PyInstaller, the bundled claude-swap and its
+   licence notices, `verify_build.py`, portable zip, Inno Setup installer, and `SHA256SUMS.txt`.
 4. Attaches a [build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
    to the installer and zip, so anyone can prove they came from this repository's workflow.
 5. Publishes a GitHub Release titled *Claude Profiles X.Y.Z* with the changelog section as its notes.
 
 If something fails after the tag is pushed, fix it on `main` and cut the next patch version. Do
 not move or re-push a published tag.
+
+## Updating the bundled claude-swap
+
+The installer ships claude-swap pinned in `tools/cswap/requirements.in`. To move to a newer one:
+
+```powershell
+# 1. Change the pin, then re-lock with hashes.
+uv pip compile tools\cswap\requirements.in --generate-hashes --universal -o tools\cswap\requirements.txt
+
+# 2. Install it and re-verify the JSON contract the app parses. Read-only.
+uv pip install --require-hashes -r tools\cswap\requirements.txt
+uv tool install claude-swap==<new version> --force    # the contract tests use the one on PATH
+.venv\Scripts\python.exe -m pytest --run-integration -m integration
+```
+
+Then update the version named in `docs/architecture.md` (a test ties it to the pin) and note the
+change under `[Unreleased]` in the changelog. Dependabot proposes these bumps; do not merge one
+without the contract run.
 
 ## Dry runs
 
