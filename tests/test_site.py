@@ -67,11 +67,11 @@ def test_every_local_link_and_image_exists(page):
     parser = _Refs()
     parser.feed(page)
     local = [
-        r for r in parser.refs
+        r.split("#")[0].split("?")[0] for r in parser.refs
         if not r.startswith(("http://", "https://", "#", "mailto:"))
     ]
     assert local, "expected local assets"
-    missing = [r for r in local if not (SITE / r.split("#")[0]).is_file()]
+    missing = [r for r in local if not (SITE / r).is_file()]
     assert missing == []
 
     # Present on disk is not enough: .gitignore once dropped favicon.ico
@@ -136,3 +136,15 @@ def test_the_site_never_asks_for_a_separate_claude_swap_install(name):
     assert "uv tool install" not in text
     assert "pipx install" not in text
     assert "included" in text.lower() or "bundle" in text.lower()
+
+
+def test_the_stylesheet_link_is_versioned_by_its_content(page):
+    """Pages caches CSS for 10 minutes; a stale sheet once hid a redesign.
+
+    The ?v= hash must change whenever styles.css does. Regenerate with:
+    sha256sum site/styles.css | cut -c1-8
+    """
+    import hashlib
+
+    expected = hashlib.sha256((SITE / "styles.css").read_bytes()).hexdigest()[:8]
+    assert f'href="styles.css?v={expected}"' in page

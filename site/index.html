@@ -32,7 +32,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=24d0991a">
 
 <script type="application/ld+json">
 {
@@ -408,15 +408,18 @@
     var to = Math.max(0, target.getBoundingClientRect().top + from - offset);
     var duration = Math.min(900, Math.max(350, Math.abs(to - from) / 4));
     var start = null;
+    function finish() {
+      history.pushState(null, "", "#" + id);
+      if (id && link.classList.contains("skip")) target.focus({ preventScroll: true });
+    }
+    // A hidden tab gets no animation frames; there is nothing to watch, so jump.
+    if (document.hidden) { window.scrollTo(0, to); finish(); return; }
     function step(now) {
       if (start === null) start = now;
       var t = Math.min(1, (now - start) / duration);
       window.scrollTo(0, from + (to - from) * ease(t));
       if (t < 1) requestAnimationFrame(step);
-      else {
-        history.pushState(null, "", "#" + id);
-        if (id && link.classList.contains("skip")) target.focus({ preventScroll: true });
-      }
+      else finish();
     }
     requestAnimationFrame(step);
   });
