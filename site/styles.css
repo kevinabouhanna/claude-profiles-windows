@@ -118,7 +118,12 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
 
 /* -- buttons ----------------------------------------------------------- */
 
+/* Buttons sit on a hard shadow and press down into it: halfway on hover,
+   all the way (flush, shadow gone) while clicked. Each variant only sets its
+   shadow depth and colour; the movement is shared. */
 .btn {
+  --depth: 6px;
+  --shadow-colour: var(--ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -129,27 +134,34 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
   color: var(--ink);
   background: var(--accent);
   border: var(--border);
-  box-shadow: var(--shadow);
+  box-shadow: var(--depth) var(--depth) 0 var(--shadow-colour);
   padding: 16px 22px;
-  transition: transform 80ms ease, box-shadow 80ms ease;
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
-.btn:hover { color: var(--ink); transform: translate(-2px, -2px); box-shadow: 8px 8px 0 var(--ink); }
-.btn:active { transform: translate(6px, 6px); box-shadow: 0 0 0 var(--ink); }
-@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+.btn:hover,
+.btn:focus-visible {
+  color: var(--ink);
+  transform: translate(calc(var(--depth) / 2), calc(var(--depth) / 2));
+  box-shadow: calc(var(--depth) / 2) calc(var(--depth) / 2) 0 var(--shadow-colour);
+}
+.btn:active {
+  transform: translate(var(--depth), var(--depth));
+  box-shadow: 0 0 0 var(--shadow-colour);
+  transition-duration: 60ms;
+}
 
 .btn--ghost { background: var(--paper); }
-.btn--small { padding: 10px 14px; font-size: 0.9rem; box-shadow: var(--shadow-sm); }
-.btn--small:hover { box-shadow: 6px 6px 0 var(--ink); }
+.btn--small { --depth: 4px; padding: 10px 14px; font-size: 0.9rem; }
 
-.btn--invert { background: var(--accent); border-color: var(--paper); box-shadow: 6px 6px 0 var(--paper); }
-.btn--invert:hover { box-shadow: 8px 8px 0 var(--paper); }
+.btn--invert { --shadow-colour: var(--paper); border-color: var(--paper); }
 .btn--ghost-invert {
+  --shadow-colour: var(--paper);
   background: var(--ink);
   color: var(--paper);
   border-color: var(--paper);
-  box-shadow: 6px 6px 0 var(--paper);
 }
-.btn--ghost-invert:hover { color: var(--paper); box-shadow: 8px 8px 0 var(--paper); }
+.btn--ghost-invert:hover,
+.btn--ghost-invert:focus-visible { color: var(--paper); }
 
 /* A button pair shares one width, sized by the longer label. */
 .cta-pair {

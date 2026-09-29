@@ -53,7 +53,8 @@ terminal locked to any account. It never touches your credentials itself.
 
 | | |
 |---|---|
-| 📊 **Every account at a glance** | 5-hour and 7-day usage with reset countdowns, per-model rows (e.g. Opus), a pace indicator ("ahead of pace, expected 57%"), data age, and login health. |
+| 📊 **Every account at a glance** | 5-hour and 7-day usage with reset countdowns, per-model rows (e.g. Opus), data age, and login health. |
+| 📏 **Know your pace** | A white line on the 5-hour and 7-day bars marks where you would be if you spent the quota evenly. Fill past the line means you are burning through it; short of it, you have room. |
 | 🔁 **One-click switching** | Changes the account Claude Code uses for **new** sessions. The controls lock while the switch runs, and a Windows notification confirms the result. |
 | 🖥️ **Isolated sessions** | Open a Claude Code terminal bound to one account *without* changing the global active account, so you can run several side by side. |
 | ➕ **As many accounts as you have** | Two, three or ten: every account registered with claude-swap gets a card, a colour, a menu entry and a shortcut. Name them whatever you like: `personal`, `work`, `client-acme`. |
