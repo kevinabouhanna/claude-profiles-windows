@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-29
+
+### Fixed
+
+- Demo mode (`--mock`) no longer shows an "Opus" per-model row under every account. Real accounts
+  only have those rows when claude-swap reports a model-specific limit, and the website's
+  screenshots, which are taken in demo mode, showed rows the app would not show you.
+- Demo mode's 7-day pace marker is placed by time elapsed, as claude-swap does, instead of always
+  just below usage.
+
 ## [0.3.0] - 2026-09-29
 
 ### Added
@@ -69,7 +79,8 @@ The first public release.
 - Windows installer and portable zip, built and published by GitHub Actions with SHA-256 checksums
   and build provenance attestations.
 
-[Unreleased]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kevinabouhanna/claude-profiles-windows/releases/tag/v0.1.0

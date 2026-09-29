@@ -16,7 +16,7 @@ See every account's quota at a glance, switch in one click, or open a terminal b
 
 **[⬇️ Download the installer for Windows](https://github.com/kevinabouhanna/claude-profiles-windows/releases/latest/download/ClaudeProfiles-Setup.exe)** · [Website](https://kevinabouhanna.github.io/claude-profiles-windows/) · [All releases](https://github.com/kevinabouhanna/claude-profiles-windows/releases)
 
-<img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing three accounts - Personal, Work and Side Project - each with 5-hour, 7-day and per-model usage bars" width="760">
+<img src="docs/images/dashboard.png" alt="The Claude Profiles dashboard showing three accounts - Personal, Work and Side Project - each with 5-hour and 7-day usage bars and pace markers" width="760">
 
 </div>
 
@@ -53,7 +53,7 @@ terminal locked to any account. It never touches your credentials itself.
 
 | | |
 |---|---|
-| 📊 **Every account at a glance** | 5-hour and 7-day usage with reset countdowns, per-model rows (e.g. Opus), data age, and login health. |
+| 📊 **Every account at a glance** | 5-hour and 7-day usage with reset countdowns, data age, and login health, plus any model-specific limit claude-swap reports for an account. |
 | 📏 **Know your pace** | A white line on the 5-hour and 7-day bars marks where you would be if you spent the quota evenly. Fill past the line means you are burning through it; short of it, you have room. |
 | 🔁 **One-click switching** | Changes the account Claude Code uses for **new** sessions. The controls lock while the switch runs, and a Windows notification confirms the result. |
 | 🖥️ **Isolated sessions** | Open a Claude Code terminal bound to one account *without* changing the global active account, so you can run several side by side. |

@@ -76,6 +76,10 @@ def _window(pct: float, resets_in: timedelta, *, name: str | None = None) -> dic
     return window
 
 
+SEVEN_DAY_RESET = timedelta(days=3, hours=4)
+SEVEN_DAY_EXPECTED = round(100 * (1 - SEVEN_DAY_RESET / timedelta(days=7)), 1)
+
+
 class MockCswapClient:
     """Implements the :class:`CswapBackend` protocol with synthetic data."""
 
@@ -127,15 +131,16 @@ class MockCswapClient:
         usage: dict[str, Any] = {
             "fiveHour": _window(five, timedelta(hours=2, minutes=13)),
             "sevenDay": {
-                **_window(seven, timedelta(days=3, hours=4)),
-                "expectedPct": round(seven - 6, 1),
-                "aheadOfPace": True,
+                **_window(seven, SEVEN_DAY_RESET),
+                # What real claude-swap reports: the share of the week elapsed.
+                "expectedPct": SEVEN_DAY_EXPECTED,
+                "aheadOfPace": seven > SEVEN_DAY_EXPECTED,
                 "projectedExhaustionAt": _iso(datetime.now(UTC) + timedelta(days=2, hours=9)),
                 "willLastToReset": seven < 80,
             },
-            "scoped": [
-                _window(self._drift(18, 120, 3), timedelta(hours=2, minutes=13), name="Opus")
-            ],
+            # No per-model ("scoped") rows: claude-swap only reports those for
+            # accounts with model-specific limits, which typical accounts lack,
+            # and the demo should look like a real account.
         }
         return usage
 

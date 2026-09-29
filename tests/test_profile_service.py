@@ -588,3 +588,21 @@ def test_the_two_account_demo_has_just_personal_and_work(settings_service):
     svc = ProfileService(MockCswapClient("two_accounts"), settings_service)
     svc.refresh_sync()
     assert [s.profile.key for s in svc.states] == ["personal", "work"]
+
+
+def test_the_demo_looks_like_a_real_account(settings_service):
+    """Screenshots are taken from demo mode, so it must not invent rows.
+
+    Per-model ("scoped") limits only exist for some accounts; the demo once
+    showed an Opus row on every account, which real accounts do not have.
+    """
+    from claude_profiles.services.mock_cswap import SEVEN_DAY_EXPECTED
+
+    svc = ProfileService(MockCswapClient("healthy"), settings_service)
+    svc.refresh_sync()
+    for state in svc.states:
+        usage = state.account.usage
+        assert usage.scoped == ()
+        # Real claude-swap sets the 7-day pace from time elapsed, not from usage.
+        assert usage.seven_day.expected_pct == SEVEN_DAY_EXPECTED
+        assert usage.seven_day.ahead_of_pace == (usage.seven_day.pct > SEVEN_DAY_EXPECTED)
