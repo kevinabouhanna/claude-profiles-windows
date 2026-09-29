@@ -33,6 +33,9 @@
   --shadow: 6px 6px 0 var(--ink);
   --shadow-sm: 4px 4px 0 var(--ink);
   --shadow-lg: 10px 10px 0 var(--ink);
+  /* Dark screenshots on a black shadow read as one blob, so their frames cast
+     the accent instead. */
+  --shadow-shot: 10px 10px 0 var(--accent);
 
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -118,9 +121,9 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
 
 /* -- buttons ----------------------------------------------------------- */
 
-/* Buttons sit on a hard shadow and press down into it: halfway on hover,
-   all the way (flush, shadow gone) while clicked. Each variant only sets its
-   shadow depth and colour; the movement is shared. */
+/* Buttons sit on a hard shadow and press down into it on hover or focus,
+   ending flush with the shadow gone so only the button's own border is left.
+   A click adds a small extra dip. Variants only set shadow depth and colour. */
 .btn {
   --depth: 6px;
   --shadow-colour: var(--ink);
@@ -141,12 +144,11 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
 .btn:hover,
 .btn:focus-visible {
   color: var(--ink);
-  transform: translate(calc(var(--depth) / 2), calc(var(--depth) / 2));
-  box-shadow: calc(var(--depth) / 2) calc(var(--depth) / 2) 0 var(--shadow-colour);
-}
-.btn:active {
   transform: translate(var(--depth), var(--depth));
   box-shadow: 0 0 0 var(--shadow-colour);
+}
+.btn:active {
+  transform: translate(var(--depth), calc(var(--depth) + 1px));
   transition-duration: 60ms;
 }
 
@@ -265,7 +267,7 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
   width: 100%;
   max-width: 420px;
   border: var(--border);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-shot);
   background: var(--terminal);
 }
 .tray-shot img { width: 100%; }
@@ -280,7 +282,7 @@ kbd { box-shadow: 2px 2px 0 var(--ink); margin: 0 0.15em; }
 .shot {
   margin: 64px 0 0;
   border: var(--border);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-shot);
   background: var(--ink);
 }
 .shot img { width: 100%; }
