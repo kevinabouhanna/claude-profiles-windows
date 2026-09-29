@@ -39,6 +39,7 @@ _ORG_UUIDS = {
 
 SCENARIOS = (
     "healthy",
+    "two_accounts",
     "work_reauth",
     "work_stale",
     "work_unavailable",
@@ -86,8 +87,9 @@ class MockCswapClient:
         # Registered accounts as {number, email, alias}. "no_accounts" starts
         # empty so the setup flow can be exercised end to end in demo mode.
         self._accounts: list[dict[str, Any]] = []
+        demo_accounts = list(_CATALOG.items())[: 2 if scenario == "two_accounts" else None]
         if scenario != "no_accounts":
-            for number, (email, (alias, *_)) in enumerate(_CATALOG.items(), start=1):
+            for number, (email, (alias, *_)) in enumerate(demo_accounts, start=1):
                 self._accounts.append({"number": number, "email": email, "alias": alias})
         self._active_number: int | None = 1 if self._accounts else None
         # Who Claude Code is currently signed in as, for `add` to pick up.

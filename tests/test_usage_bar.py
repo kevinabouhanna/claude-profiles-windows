@@ -147,3 +147,95 @@ def test_changing_the_accent_repaints(qtbot):
     bar.resize(320, 26)
     bar.grab()
     assert bar._accent == "#F7630C"
+
+
+# --- pace marker ------------------------------------------------------------
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from PySide6.QtGui import QColor, QImage  # noqa: E402
+
+from claude_profiles.models import FIVE_HOURS, SEVEN_DAYS, pace_pct  # noqa: E402
+from claude_profiles.widgets.usage_bar import LABEL_WIDTH, VALUE_WIDTH  # noqa: E402
+
+NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+
+
+def _window(pct=40.0, resets_in=timedelta(hours=3), **extra):
+    return UsageWindow(pct=pct, resets_at=NOW + resets_in, **extra)
+
+
+def test_the_five_hour_pace_is_the_share_of_the_window_elapsed():
+    """Three hours left of five means two have passed: even spending is 40%."""
+    assert pace_pct(_window(resets_in=timedelta(hours=3)), FIVE_HOURS, NOW) == pytest.approx(40.0)
+    assert pace_pct(_window(resets_in=timedelta(hours=5)), FIVE_HOURS, NOW) == pytest.approx(0.0)
+    assert pace_pct(_window(resets_in=timedelta(0)), FIVE_HOURS, NOW) == pytest.approx(100.0)
+
+
+def test_the_seven_day_pace_works_the_same_way():
+    window = _window(resets_in=timedelta(days=3, hours=12))
+    assert pace_pct(window, SEVEN_DAYS, NOW) == pytest.approx(50.0)
+
+
+def test_claude_swaps_own_expected_percentage_wins():
+    window = _window(resets_in=timedelta(hours=3), expected_pct=57.0)
+    assert pace_pct(window, FIVE_HOURS, NOW) == 57.0
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        None,
+        UsageWindow(pct=10.0),  # no reset time
+        _window(resets_in=timedelta(hours=9)),  # reset further off than the window is long
+        _window(resets_in=timedelta(minutes=-5)),  # already past
+    ],
+)
+def test_no_marker_when_the_pace_cannot_be_placed(window):
+    assert pace_pct(window, FIVE_HOURS, NOW) is None
+
+
+def test_a_window_of_unknown_length_gets_no_computed_marker():
+    """Per-model rows do not say how long their window is."""
+    assert pace_pct(_window(), None, NOW) is None
+
+
+def test_a_naive_reset_time_is_read_as_utc():
+    naive = UsageWindow(pct=10.0, resets_at=(NOW + timedelta(hours=3)).replace(tzinfo=None))
+    assert pace_pct(naive, FIVE_HOURS, NOW) == pytest.approx(40.0)
+
+
+def _render(bar: UsageBar) -> QImage:
+    bar.resize(400, bar.height())
+    image = QImage(bar.size(), QImage.Format.Format_ARGB32)
+    image.fill(QColor(theme.tokens().background))
+    bar.render(image)
+    return image
+
+
+@pytest.mark.parametrize("compact", [True, False])
+def test_the_marker_is_drawn_in_the_flyout_and_the_dashboard(qtbot, compact):
+    """It used to be hidden in the compact flyout, where people look most."""
+    bar = UsageBar("5h", ACCENT, compact=compact)
+    qtbot.addWidget(bar)
+    bar.set_window(
+        UsageWindow(pct=10.0, expected_pct=50.0, countdown="2h 30m"), length_seconds=FIVE_HOURS
+    )
+    image = _render(bar)
+
+    track_x = LABEL_WIDTH + 10
+    track_right = 400 - VALUE_WIDTH - 104 - 10
+    marker_x = int(track_x + (track_right - track_x) * 0.5)
+    above_track = int(bar.height() / 2 - 2 - 3)  # inside the overhang, clear of the track
+    colour = QColor(image.pixel(marker_x, above_track))
+    background = QColor(theme.tokens().background)
+    assert abs(colour.lightness() - background.lightness()) > 60, "no visible pace line"
+
+
+def test_the_tooltip_explains_the_five_hour_pace(qtbot):
+    bar = UsageBar("5h", ACCENT)
+    qtbot.addWidget(bar)
+    soon = datetime.now(UTC) + timedelta(hours=1)  # four of five hours gone: 80%
+    bar.set_window(UsageWindow(pct=90.0, resets_at=soon), length_seconds=FIVE_HOURS)
+    assert "Ahead of pace" in bar.toolTip()
+    assert "80%" in bar.toolTip()

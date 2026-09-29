@@ -204,7 +204,7 @@ or config.
 & "$env:LOCALAPPDATA\Programs\Claude Profiles\ClaudeProfiles.exe" --scenario work_reauth
 ```
 
-Scenarios: `healthy`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usage`, `no_accounts`,
+Scenarios: `healthy`, `two_accounts`, `work_reauth`, `work_stale`, `work_unavailable`, `high_usage`, `no_accounts`,
 `unknown_schema`.
 
 ---

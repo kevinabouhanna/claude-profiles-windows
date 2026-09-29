@@ -10,7 +10,7 @@ surfaces as a warning banner, never as a crash.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -122,6 +122,35 @@ class UsageWindow:
             projected_exhaustion_at=_parse_dt(data.get("projectedExhaustionAt")),
             will_last_to_reset=_parse_bool(data.get("willLastToReset")),
         )
+
+
+FIVE_HOURS = 5 * 3600
+SEVEN_DAYS = 7 * 86400
+
+
+def pace_pct(
+    window: UsageWindow | None, length_seconds: float | None, now: datetime | None = None
+) -> float | None:
+    """Where usage would sit now if the window's quota were spent evenly.
+
+    claude-swap reports this (``expectedPct``) for the 7-day window only. For a
+    window of known length it is simply the share of the window already
+    elapsed: two hours into a five-hour window, even spending is 40%. Above that
+    line you are spending faster than the quota refills; below it, you have room.
+    """
+    if window is None:
+        return None
+    if window.expected_pct is not None:
+        return max(0.0, min(100.0, window.expected_pct))
+    if not length_seconds or window.resets_at is None:
+        return None
+    resets_at = window.resets_at
+    if resets_at.tzinfo is None:
+        resets_at = resets_at.replace(tzinfo=UTC)
+    remaining = (resets_at - (now or datetime.now(UTC))).total_seconds()
+    if remaining < 0 or remaining > length_seconds:
+        return None  # a reset time outside the window means we cannot place it
+    return 100.0 * (length_seconds - remaining) / length_seconds
 
 
 @dataclass(frozen=True)

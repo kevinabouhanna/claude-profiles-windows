@@ -1,3 +1,3 @@
 """Claude Profiles - private, local-only Windows tray app for Claude Code accounts."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

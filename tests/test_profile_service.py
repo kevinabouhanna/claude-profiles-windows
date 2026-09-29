@@ -582,3 +582,9 @@ def test_steady_state_polling_writes_nothing(settings_service):
         svc.apply_accounts(svc._backend.list_accounts())
 
     assert len(svc.recent_activity()) == before
+
+
+def test_the_two_account_demo_has_just_personal_and_work(settings_service):
+    svc = ProfileService(MockCswapClient("two_accounts"), settings_service)
+    svc.refresh_sync()
+    assert [s.profile.key for s in svc.states] == ["personal", "work"]

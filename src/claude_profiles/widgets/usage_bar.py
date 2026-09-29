@@ -13,7 +13,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from ..models import UsageWindow
+from ..models import UsageWindow, pace_pct
 from . import theme
 
 WARN_PCT = 80.0
@@ -21,6 +21,11 @@ CRITICAL_PCT = 95.0
 
 TRACK_HEIGHT = 4
 ROW_HEIGHT = 26
+
+# The pace marker stands proud of the track so it reads as a line to compare
+# against, not as part of the fill.
+MARKER_WIDTH = 2.0
+MARKER_OVERHANG = 4
 
 LABEL_WIDTH = 38
 VALUE_WIDTH = 42
@@ -65,10 +70,18 @@ class UsageBar(QWidget):
 
     # -- state --------------------------------------------------------------
 
-    def set_window(self, window: UsageWindow | None, *, stale: bool = False) -> None:
+    def set_window(
+        self,
+        window: UsageWindow | None,
+        *,
+        stale: bool = False,
+        length_seconds: float | None = None,
+    ) -> None:
+        """Show ``window``. ``length_seconds`` lets the pace marker be placed
+        for windows claude-swap reports no expected percentage for."""
         self._pct = window.pct if window else None
         self._countdown = window.countdown if window else None
-        self._expected_pct = window.expected_pct if window else None
+        self._expected_pct = pace_pct(window, length_seconds)
         self._stale = stale
         if window and window.name:
             self._label = window.name
@@ -87,9 +100,16 @@ class UsageBar(QWidget):
             parts.append(f"Resets in {window.countdown}")
         if window.clock:
             parts.append(f"Reset time {window.clock}")
-        if window.expected_pct is not None:
-            pace = "Ahead of" if window.ahead_of_pace else "Within"
-            parts.append(f"{pace} pace (expected {window.expected_pct:.0f}%)")
+        if self._expected_pct is not None:
+            ahead = (
+                window.ahead_of_pace
+                if window.ahead_of_pace is not None
+                else window.pct > self._expected_pct
+            )
+            pace = "Ahead of" if ahead else "Within"
+            parts.append(
+                f"{pace} pace: spending evenly would put you at {self._expected_pct:.0f}% now"
+            )
         if window.will_last_to_reset is False:
             parts.append("Projected to run out before reset")
         if self._stale:
@@ -155,13 +175,25 @@ class UsageBar(QWidget):
                 color.setAlphaF(0.45)
             painter.fillPath(fill, color)
 
-        # Pace marker: where usage would sit if spent evenly.
-        if self._expected_pct is not None and not self._compact:
+        # Pace marker: where usage would sit if spent evenly. Fill past it
+        # means spending faster than the quota refills.
+        if self._expected_pct is not None:
             marker_x = track_x + track_w * max(0.0, min(100.0, self._expected_pct)) / 100.0
-            marker = QColor(t.text_tertiary)
-            painter.fillRect(
-                QRectF(marker_x - 0.5, track_y - 3, 1.0, TRACK_HEIGHT + 6), marker
+            marker = QPainterPath()
+            marker.addRoundedRect(
+                QRectF(
+                    marker_x - MARKER_WIDTH / 2,
+                    track_y - MARKER_OVERHANG,
+                    MARKER_WIDTH,
+                    TRACK_HEIGHT + 2 * MARKER_OVERHANG,
+                ),
+                MARKER_WIDTH / 2,
+                MARKER_WIDTH / 2,
             )
+            color = QColor(t.text)
+            if self._stale:
+                color.setAlphaF(0.45)
+            painter.fillPath(marker, color)
 
         # Value column
         painter.setFont(theme.font(theme.CAPTION, 600))

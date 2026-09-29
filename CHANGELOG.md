@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-29
+
+### Added
+
+- A pace marker on the 5-hour bar as well as the 7-day one: a white line showing where your usage
+  would be if you spent the quota evenly. Fill past the line means you are spending faster than
+  it refills; short of it, you have room. It is worked out from the reset time when claude-swap
+  does not report it, and the tooltip says whether you are ahead of pace or within it.
+- `--scenario two_accounts` demo, with just Personal and Work.
+
+### Changed
+
+- The pace marker now shows in the tray flyout too, not only on the dashboard, and is drawn as a
+  clear white line that stands above the bar.
+
 ## [0.2.0] - 2026-09-29
 
 ### Added
@@ -54,6 +69,7 @@ The first public release.
 - Windows installer and portable zip, built and published by GitHub Actions with SHA-256 checksums
   and build provenance attestations.
 
-[Unreleased]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kevinabouhanna/claude-profiles-windows/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kevinabouhanna/claude-profiles-windows/releases/tag/v0.1.0

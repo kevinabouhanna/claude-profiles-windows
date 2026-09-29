@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..models import ProfileState
+from ..models import FIVE_HOURS, SEVEN_DAYS, ProfileState
 from ..resources import fluent_icons
 from . import theme
 from .status_badge import ProfileAvatar, StatusBadge, format_age, health_badge_text
@@ -240,8 +240,12 @@ class ProfileCard(QFrame):
         if account is not None:
             usage = account.effective_usage
             stale = account.is_stale
-            self._five_bar.set_window(usage.five_hour if usage else None, stale=stale)
-            self._seven_bar.set_window(usage.seven_day if usage else None, stale=stale)
+            self._five_bar.set_window(
+                usage.five_hour if usage else None, stale=stale, length_seconds=FIVE_HOURS
+            )
+            self._seven_bar.set_window(
+                usage.seven_day if usage else None, stale=stale, length_seconds=SEVEN_DAYS
+            )
             self._render_scoped(usage.scoped if usage else (), stale)
             self._render_spend(usage)
             self._render_pace(usage)
