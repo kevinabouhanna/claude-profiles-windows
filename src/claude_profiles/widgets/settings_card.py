@@ -63,14 +63,17 @@ class SettingsCard(QFrame):
         text = QVBoxLayout()
         text.setSpacing(2)
         text.setContentsMargins(0, 0, 0, 0)
-        self._title = QLabel(title)
+        self._title = QLabel(title, self)
         self._title.setWordWrap(True)
         text.addWidget(self._title)
-        self._description = QLabel(description)
+        # Parented at birth: ``text`` is not attached to the card until below,
+        # so a parentless label shown here would open as a window of its own
+        # for an instant - one flash per card when the dashboard first opens.
+        self._description = QLabel(description, self)
         self._description.setWordWrap(True)
         self._description.setVisible(bool(description))
         text.addWidget(self._description)
-        self._status = QLabel("")
+        self._status = QLabel("", self)
         self._status.setWordWrap(True)
         self._status.setVisible(False)
         text.addWidget(self._status)

@@ -2,7 +2,7 @@
 
 Organised by what the user came to do rather than by implementation detail:
 
-    Overview   every account, its usage, and a refresh        (top)
+    Overview   every account and its usage                    (top)
     Accounts   adding, renaming and re-registering accounts   (top)
     Activity   the safe, local history of what happened        (top)
     Privacy    what is and is not stored, and your data        (footer)
@@ -94,7 +94,6 @@ class MainWindow(QMainWindow):
     reloginRequested = Signal(str)
     setupRequested = Signal(str)
     addAccountRequested = Signal()
-    refreshRequested = Signal()
     settingsChanged = Signal(object)  # Settings
     clearHistoryRequested = Signal()
     openDataFolderRequested = Signal()
@@ -155,17 +154,14 @@ class MainWindow(QMainWindow):
     def _build_overview(self, states: tuple[ProfileState, ...], mock_mode: bool) -> Page:
         page = Page("Overview")
 
-        self._refresh_button = text_button("refresh", "Refresh")
-        self._refresh_button.clicked.connect(self.refreshRequested.emit)
-        page.add_header_action(self._refresh_button)
-
         if mock_mode:
-            demo = InfoBar("info", closable=False)
+            # Added before its message is set: showing it while it has no
+            # parent would open it as a window of its own for an instant.
+            demo = page.add(InfoBar("info", closable=False))
             demo.show_message(
                 "Demo mode. Every figure here is synthetic; no real account is "
                 "being read or changed."
             )
-            page.add(demo)
 
         self._banner = InfoBar("info")
         page.add(self._banner)
@@ -510,8 +506,6 @@ class MainWindow(QMainWindow):
         for card in self._cards.values():
             card.set_busy(busy)
         self.setup_page.set_busy(busy)
-        self._refresh_button.setEnabled(not busy)
-        self._refresh_button.setText("  Refreshing…" if busy else "  Refresh")
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)

@@ -224,7 +224,7 @@ direct result of something you clicked.
 
 ### When usage refreshes
 
-You should rarely need the Refresh button:
+There is no Refresh button, because there is nothing to press:
 
 - **Opening the flyout or the dashboard refreshes it**, unless a reading arrived in the last 10 seconds.
 - **Polling speeds up while you are looking.** With a window on screen the interval drops to 30

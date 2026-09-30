@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Opening the dashboard or Settings for the first time no longer flashes a burst of blank windows
+  on screen. Each settings description and account badge was briefly shown as a window of its own
+  while the page was being built.
+- Clicking the tray icon while the flyout is open now closes it. Before, the click closed the
+  flyout and then immediately opened it again.
+
+### Removed
+
+- The Refresh buttons in the tray flyout, the tray menu and the Overview page. Usage already
+  refreshes whenever you open the flyout or the dashboard, and on a timer in the background.
+
 ## [0.3.1] - 2026-09-29
 
 ### Fixed

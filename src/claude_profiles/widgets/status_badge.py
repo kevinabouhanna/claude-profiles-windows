@@ -43,9 +43,14 @@ class StatusBadge(QWidget):
     def apply(self, text: str, tone: str) -> None:
         self._tone = tone
         self._label.setText(text)
-        self.setVisible(bool(text))
         if not text:
+            self.hide()
             return
+        # A badge is built before its card adopts it, and showing a widget with
+        # no parent opens it as a window of its own for an instant. Until it
+        # has a parent, not hiding it is enough: it appears along with the card.
+        if self.parentWidget() is not None:
+            self.show()
 
         t = theme.tokens()
         icon_name, token_attr = _TONES.get(tone, _TONES["muted"])

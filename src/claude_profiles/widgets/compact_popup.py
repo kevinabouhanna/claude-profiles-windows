@@ -6,6 +6,8 @@ subtle icon buttons, content cards, and a command row along the bottom.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import (
@@ -28,6 +30,11 @@ POPUP_WIDTH = 440
 # flyout that is not a card. Used to cap the card area to the screen.
 CHROME_HEIGHT = 150
 CARD_SPACING = 10
+# Clicking the tray icon while the flyout is open closes it twice over: the
+# press lands outside a Qt popup, which hides it at once, and then the tray
+# reports the click, which would open it straight back up. A tray click this
+# soon after a hide is taken to be that same click.
+REOPEN_GUARD_SECONDS = 0.5
 
 
 class HintBanner(QFrame):
@@ -74,7 +81,6 @@ class CompactPopup(QWidget):
     reloginRequested = Signal(str)
     setupRequested = Signal(str)
     addAccountRequested = Signal()
-    refreshRequested = Signal()
     dashboardRequested = Signal()
     settingsRequested = Signal()
     quitRequested = Signal()
@@ -85,6 +91,7 @@ class CompactPopup(QWidget):
         self.setObjectName("compactPopup")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedWidth(POPUP_WIDTH)
+        self._hidden_at: float | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 14)
@@ -117,10 +124,6 @@ class CompactPopup(QWidget):
         add_button = icon_button("add_account", "Add an account")
         add_button.clicked.connect(self.addAccountRequested.emit)
         header.addWidget(add_button)
-
-        self._refresh_button = icon_button("refresh", "Refresh now")
-        self._refresh_button.clicked.connect(self.refreshRequested.emit)
-        header.addWidget(self._refresh_button)
 
         settings_button = icon_button("settings", "Settings")
         settings_button.clicked.connect(self.settingsRequested.emit)
@@ -264,7 +267,6 @@ class CompactPopup(QWidget):
     def set_busy(self, busy: bool) -> None:
         for card in self._cards.values():
             card.set_busy(busy)
-        self._refresh_button.setEnabled(not busy)
 
     def set_status(self, text: str, level: str = "info") -> None:
         self._status_label.setText(text)
@@ -302,7 +304,15 @@ class CompactPopup(QWidget):
 
     def hideEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().hideEvent(event)
+        self._hidden_at = time.monotonic()
         self.visibilityChanged.emit(False)
+
+    def just_hidden(self) -> bool:
+        """Did the flyout close within the last REOPEN_GUARD_SECONDS?"""
+        return (
+            self._hidden_at is not None
+            and time.monotonic() - self._hidden_at < REOPEN_GUARD_SECONDS
+        )
 
     def event(self, event: QEvent) -> bool:
         # A Popup closes on outside clicks; hide rather than destroy so state

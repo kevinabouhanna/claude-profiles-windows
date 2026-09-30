@@ -53,7 +53,8 @@ RELOGIN_INSTRUCTIONS = (
     "claude-swap:<br><code>cswap add --alias {alias}</code><br>"
     "(or use <b>Add an account</b> with the same name).<br>"
     "If the slot already exists, <code>cswap add</code> updates it.</li>"
-    "<li>Come back here and press <b>Refresh now</b>.</li>"
+    "<li>Come back here: opening Claude Profiles from the tray picks up the "
+    "new sign-in.</li>"
     "</ol>"
     "<p>This app cannot read or repair credentials itself - all credential "
     "handling belongs to claude-swap.</p>"
@@ -169,7 +170,6 @@ class TrayController(QObject):
             action.triggered.connect(slot)
             return action
 
-        menu.addAction(command("refresh", "Refresh now", self._refresh))
         menu.addAction(command("open_window", "Open full dashboard", self._show_window))
         menu.addAction(command("add_account", "Add an account…", self._add_account))
         menu.addAction(command("people", "Manage accounts…", self._show_setup))
@@ -204,7 +204,6 @@ class TrayController(QObject):
         self.popup.reloginRequested.connect(self._show_relogin)
         self.popup.setupRequested.connect(self._show_setup)
         self.popup.addAccountRequested.connect(self._add_account)
-        self.popup.refreshRequested.connect(self._refresh)
         self.popup.dashboardRequested.connect(self._show_window)
         self.popup.settingsRequested.connect(lambda: self._show_window(tab=TAB_SETTINGS))
         self.popup.quitRequested.connect(self._quit)
@@ -292,7 +291,10 @@ class TrayController(QObject):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.popup.isVisible():
                 self.popup.hide()
-            else:
+            elif not self.popup.just_hidden():
+                # A flyout that closed a moment ago was closed by this very
+                # click on its way in; reopening it would leave the icon
+                # unable to close the flyout at all.
                 self.popup.update_states(self.profiles.states)
                 self.popup.show_near(self.tray.geometry().center())
                 # Clicking the tray icon means "show me the numbers now", so
@@ -619,7 +621,6 @@ class TrayController(QObject):
             window.reloginRequested.connect(self._show_relogin)
             window.setupRequested.connect(self._show_setup)
             window.addAccountRequested.connect(self._add_account)
-            window.refreshRequested.connect(self._refresh)
             window.settingsChanged.connect(self._on_settings_changed)
             window.clearHistoryRequested.connect(self._clear_history)
             window.openDataFolderRequested.connect(self._open_data_folder)

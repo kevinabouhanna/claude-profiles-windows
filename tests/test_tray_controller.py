@@ -12,6 +12,8 @@ import threading
 import time
 
 import pytest
+from PySide6.QtCore import QEvent, QObject
+from PySide6.QtWidgets import QPushButton, QSystemTrayIcon, QWidget
 
 from claude_profiles.main_window import MainWindow
 from claude_profiles.services import autostart
@@ -19,6 +21,7 @@ from claude_profiles.services.mock_cswap import MockCswapClient
 from claude_profiles.services.profile_service import ProfileService
 from claude_profiles.services.settings_service import Settings, SettingsService
 from claude_profiles.tray import TrayController
+from claude_profiles.widgets import compact_popup
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -316,3 +319,101 @@ def test_a_fresh_install_still_shows_numbered_steps(controller):
 
     assert "Step 1" in window.setup_page._signin_step.title()
     assert "Step 2" in window.setup_page._register_step.title()
+
+
+# --- opening the dashboard flashed a burst of blank windows ---------------
+
+
+class _WindowSpy(QObject):
+    """Records every top-level window that is shown, however briefly."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shown: list[QWidget] = []
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt naming
+        if event.type() == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+            self.shown.append(obj)
+        return False
+
+
+def test_opening_settings_shows_no_window_but_its_own(controller, qapp):
+    """A widget made visible before it has a parent opens as a window.
+
+    Settings cards showed their description label before adding it to the
+    card, and badges showed themselves on construction, so the first open of
+    the dashboard flashed one blank window per card - seen as "several
+    terminals" opening and closing. Later opens reuse the built window, which
+    is why it happened only the first time.
+    """
+    from claude_profiles.main_window import TAB_SETTINGS
+
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    spy = _WindowSpy()
+    qapp.installEventFilter(spy)
+    try:
+        ctl._show_window(tab=TAB_SETTINGS)
+        qapp.processEvents()
+    finally:
+        qapp.removeEventFilter(spy)
+
+    assert ctl.profiles.states, "the cards and their badges must have been built"
+    assert spy.shown == [ctl._window]
+
+
+# --- clicking the tray icon could not close the flyout --------------------
+
+
+def test_clicking_the_tray_icon_again_closes_the_flyout(controller):
+    """The press closes a Qt popup before the tray reports the click.
+
+    So by the time the second click arrived the flyout was already hidden, and
+    the handler, seeing it hidden, opened it again.
+    """
+    ctl = controller("healthy")
+    trigger = QSystemTrayIcon.ActivationReason.Trigger
+
+    ctl._on_tray_activated(trigger)
+    assert ctl.popup.isVisible()
+
+    ctl.popup.hide()  # what Qt does with the press on the tray icon
+    ctl._on_tray_activated(trigger)
+    assert not ctl.popup.isVisible()
+
+
+def test_the_tray_icon_reopens_a_flyout_closed_earlier(controller):
+    ctl = controller("healthy")
+    trigger = QSystemTrayIcon.ActivationReason.Trigger
+    ctl._on_tray_activated(trigger)
+    ctl.popup.hide()
+    ctl.popup._hidden_at -= compact_popup.REOPEN_GUARD_SECONDS  # time passes
+
+    ctl._on_tray_activated(trigger)
+
+    assert ctl.popup.isVisible()
+
+
+def test_the_tray_icon_closes_a_flyout_that_is_still_open(controller):
+    ctl = controller("healthy")
+    trigger = QSystemTrayIcon.ActivationReason.Trigger
+    ctl._on_tray_activated(trigger)
+
+    ctl._on_tray_activated(trigger)
+
+    assert not ctl.popup.isVisible()
+
+
+# --- refresh is automatic, so there is no button for it -------------------
+
+
+def test_there_is_no_refresh_button_anywhere(controller):
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+
+    menu_items = [action.text() for action in ctl._menu.actions()]
+    buttons = ctl.popup.findChildren(QPushButton) + window.findChildren(QPushButton)
+
+    assert not [text for text in menu_items if "Refresh" in text]
+    assert not [b for b in buttons if "Refresh" in b.accessibleName()]
