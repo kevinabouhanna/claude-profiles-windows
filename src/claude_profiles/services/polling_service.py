@@ -50,6 +50,11 @@ class PollResult:
     error: CswapError | None = None
     # Set when this poll re-stored a fresh sign-in (or tried to).
     repair: RepairOutcome | None = None
+    # Set instead of a reading when the poll was skipped so as not to wake a
+    # sleeping environment (a stopped WSL distro). Not a failure.
+    dormant: str | None = None
+    # Which backend target the poll ran against; see SwitchableBackend.
+    generation: int = 0
 
     @property
     def ok(self) -> bool:
@@ -116,15 +121,26 @@ class PollingCoordinator:
         with self._lock:
             self._inflight = False
 
-    def run_once(self) -> PollResult | None:
+    def run_once(self, *, wake: bool = True) -> PollResult | None:
         """Run one poll, or return ``None`` if one is already in flight."""
         if not self._try_begin():
             return None
-        return self.run_claimed()
+        return self.run_claimed(wake=wake)
 
-    def run_claimed(self) -> PollResult:
-        """Run a poll whose slot the caller already claimed."""
+    def run_claimed(self, *, wake: bool = True) -> PollResult:
+        """Run a poll whose slot the caller already claimed.
+
+        With ``wake`` False the backend may decline to start something that is
+        asleep (a stopped WSL distro); the result then says so and counts as
+        neither a success nor a failure.
+        """
+        generation = getattr(self._backend, "generation", 0)
         try:
+            if not wake:
+                hook = getattr(self._backend, "dormant_reason", None)
+                reason = hook() if hook is not None else None
+                if reason:
+                    return PollResult(dormant=reason, generation=generation)
             accounts = self._backend.list_accounts()
         except CswapError as exc:
             # A transient failure advances the backoff; a hard one (cswap
@@ -132,7 +148,7 @@ class PollingCoordinator:
             if exc.kind.is_transient or exc.kind is CswapErrorKind.REPORTED:
                 self._consecutive_failures += 1
             self.last_error = exc
-            return PollResult(error=exc)
+            return PollResult(error=exc, generation=generation)
         except Exception as exc:  # noqa: BLE001 - see below
             # Anything not already a CswapError - a decode error, an OSError
             # from the subprocess layer, a bug in parsing - must still come
@@ -142,7 +158,7 @@ class PollingCoordinator:
             wrapped = CswapError(CswapErrorKind.UNKNOWN, redact_exception(exc))
             self._consecutive_failures += 1
             self.last_error = wrapped
-            return PollResult(error=wrapped)
+            return PollResult(error=wrapped, generation=generation)
         else:
             repair = self._repair.run(accounts) if self._repair is not None else None
             if repair is not None and repair.accounts is not None:
@@ -151,7 +167,7 @@ class PollingCoordinator:
             self.last_error = None
             self.last_result = accounts
             self.last_success_at = self._clock()
-            return PollResult(accounts=accounts, repair=repair)
+            return PollResult(accounts=accounts, repair=repair, generation=generation)
         finally:
             self._end()
 
@@ -169,6 +185,13 @@ class PollingCoordinator:
             return None
         return self._clock() - self.last_success_at
 
+    def reset(self) -> None:
+        """Forget readings and backoff, e.g. after the environment changed."""
+        self._consecutive_failures = 0
+        self.last_result = None
+        self.last_error = None
+        self.last_success_at = None
+
 
 class PollingService(QObject):
     """Drives :class:`PollingCoordinator` from a Qt timer and a worker thread."""
@@ -178,6 +201,7 @@ class PollingService(QObject):
     pollFailed = Signal(object)  # CswapError
     pollFinished = Signal()
     loginRepaired = Signal(object)  # RepairOutcome, after a re-store was attempted
+    pollDormant = Signal(str)  # why the poll did not wake its environment
 
     # Carries the worker thread's result back to the GUI thread. Qt queues a
     # signal across threads; QTimer.singleShot does not - called off the GUI
@@ -193,9 +217,15 @@ class PollingService(QObject):
         parent: QObject | None = None,
         *,
         repair: LoginRepair | None = None,
+        wake_allowed: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.coordinator = PollingCoordinator(backend, interval_provider, repair=repair)
+        # Read on the GUI thread when a poll starts: may this poll wake a
+        # sleeping environment? The tray says yes while a window is open.
+        self._wake_allowed = wake_allowed
+        # Polls whose results should be thrown away: see SwitchableBackend.
+        self._backend = backend
         self._timer = QTimer(self)
         # Single-shot, rescheduled after each completion. A repeating timer
         # could stack ticks behind a slow poll; this cannot.
@@ -246,7 +276,10 @@ class PollingService(QObject):
         if self._shutdown.is_set() or not self.coordinator.try_begin():
             return False
         self.pollStarted.emit()
-        thread = threading.Thread(target=self._work, name="cswap-poll", daemon=True)
+        wake = True if self._wake_allowed is None else bool(self._wake_allowed())
+        thread = threading.Thread(
+            target=self._work, args=(wake,), name="cswap-poll", daemon=True
+        )
         self._worker = thread
         thread.start()
         return True
@@ -263,12 +296,12 @@ class PollingService(QObject):
             return False
         return self.poll_now()
 
-    def _work(self) -> None:
+    def _work(self, wake: bool = True) -> None:
         # run_once already converts unexpected errors into a result; this guard
         # covers a failure in run_once itself. The loop only continues because
         # _on_result runs, so the worker must always emit exactly once.
         try:
-            result = self.coordinator.run_claimed()
+            result = self.coordinator.run_claimed(wake=wake)
         except Exception as exc:  # noqa: BLE001 - a dead loop is worse
             result = PollResult(
                 error=CswapError(CswapErrorKind.UNKNOWN, redact_exception(exc))
@@ -287,7 +320,17 @@ class PollingService(QObject):
             self.pollFinished.emit()
             self.reschedule()
             return
-        if result.accounts is not None:
+        if result.generation != getattr(self._backend, "generation", 0):
+            # Started before the environment changed: its accounts belong to
+            # the old one. The poll requested for the new one could not start
+            # while this held the slot, so start it now.
+            self.pollFinished.emit()
+            if not self.poll_now():
+                self.reschedule()
+            return
+        if result.dormant is not None:
+            self.pollDormant.emit(result.dormant)
+        elif result.accounts is not None:
             self.pollSucceeded.emit(result.accounts)
             if result.repair is not None and result.repair.attempted:
                 self.loginRepaired.emit(result.repair)

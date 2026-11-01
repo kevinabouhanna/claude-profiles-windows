@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices
@@ -24,8 +25,14 @@ from .main_window import (
 from .models import AccountList, ActivityEntry, Profile, ProfileState, profile_name
 from .resources import fluent_icons
 from .resources.icons import tray_icon
-from .services import autostart
-from .services.cswap_client import CswapBackend, CswapError, missing_cswap_advice
+from .services import autostart, wsl
+from .services.cswap_client import (
+    CswapBackend,
+    CswapError,
+    CswapErrorKind,
+    missing_cswap_advice,
+)
+from .services.environment import SwitchableBackend
 from .services.hotkeys import HotkeyManager
 from .services.notification_service import NotificationService
 from .services.polling_service import PollingService, effective_interval
@@ -52,6 +59,8 @@ class TrayController(QObject):
     loginReady = Signal(object)  # ActiveStatus | None
     registerDone = Signal(bool, str, object)  # ok, message, ActiveStatus | None
     signInFixed = Signal(str, bool, str)  # profile key, ok, user-safe message
+    distrosReady = Signal(object)  # list[str]: installed WSL distributions
+    environmentStatus = Signal(str, str)  # text, tone
 
     def __init__(
         self,
@@ -61,11 +70,20 @@ class TrayController(QObject):
         *,
         mock_mode: bool = False,
         skip_windows_integration: bool = False,
+        environment_resolver: Callable[[str], CswapBackend] | None = None,
+        distro_lister: Callable[[], list[str]] = wsl.list_distros,
     ) -> None:
         super().__init__()
         self._skip_windows_integration = skip_windows_integration
         self._app = app
         self._backend = backend
+        # Switching between Windows and WSL needs a backend that can change
+        # target and something to build the new one; demo mode has neither.
+        self._environment_resolver = (
+            environment_resolver if isinstance(backend, SwitchableBackend) else None
+        )
+        self._distro_lister = distro_lister
+        self._distros: list[str] = []
         self._settings_service = settings_service
         self._settings: Settings = settings_service.load()
         self._mock_mode = mock_mode
@@ -87,11 +105,14 @@ class TrayController(QObject):
 
         # The poller re-stores a fresh sign-in on its own, through the same
         # repair the Fix sign-in button uses.
+        # A background poll may not wake a stopped WSL distro; one made while
+        # a window is open may, because the user is waiting for the numbers.
         self.polling = PollingService(
             backend,
             self._current_interval,
             parent=self,
             repair=self.profiles.login_repair,
+            wake_allowed=self._ui_visible,
         )
         self.hotkeys = HotkeyManager(self._on_hotkey, parent=self)
 
@@ -200,10 +221,13 @@ class TrayController(QObject):
         self.loginReady.connect(self._apply_login)
         self.registerDone.connect(self._on_register_done)
         self.signInFixed.connect(self._on_sign_in_fixed)
+        self.distrosReady.connect(self._on_distros_ready)
+        self.environmentStatus.connect(self._on_environment_status)
 
         self.polling.pollSucceeded.connect(self._on_poll_succeeded)
         self.polling.pollFailed.connect(self._on_poll_failed)
         self.polling.loginRepaired.connect(self.profiles.note_repair)
+        self.polling.pollDormant.connect(self._on_poll_dormant)
         self.polling.pollStarted.connect(lambda: self._set_status("Refreshing…"))
 
         self.popup.switchRequested.connect(self._switch)
@@ -231,6 +255,11 @@ class TrayController(QObject):
             name="windows-integration",
             daemon=True,
         ).start()
+        if self._environment_resolver is not None:
+            # Listing distros does not start WSL, but wsl.exe can take a moment.
+            threading.Thread(
+                target=self._list_distros, name="wsl-distros", daemon=True
+            ).start()
         self.polling.start()
 
     def _current_interval(self) -> float:
@@ -487,21 +516,40 @@ class TrayController(QObject):
         self._setup_dialog = None
         self._refresh()
 
+    def _sign_in_command(self) -> tuple[list[str] | None, str]:
+        """``claude auth login`` where Claude Code runs, or why there is none.
+
+        For WSL this is the distro's own Claude Code, so the login lands in the
+        distro's ``~/.claude`` - the one claude-swap there manages.
+        """
+        hook = getattr(self._backend, "sign_in_command", None)
+        if hook is None:
+            claude = find_claude()
+            if claude is None:
+                return None, (
+                    "Could not find the Claude Code command. Open a terminal and "
+                    "run: claude auth login"
+                )
+            return [claude, "auth", "login"], ""
+        try:
+            command = hook()
+        except CswapError as exc:
+            return None, exc.user_message
+        if command is None:
+            return None, self._backend.sign_in_unavailable()
+        return command, ""
+
     def _start_sign_in(self, dialog: SetupDialog) -> None:
         """Launch ``claude auth login``, which opens the browser for OAuth."""
-        claude = find_claude()
-        if claude is None:
-            dialog.set_result(
-                "Could not find the Claude Code command. Open a terminal and "
-                "run: claude auth login",
-                ok=False,
-            )
+        command, problem = self._sign_in_command()
+        if command is None:
+            dialog.set_result(problem, ok=False)
             return
 
         # keep_open=False: the window closes itself once sign-in succeeds,
         # and only sticks around if the command failed.
         result = self.launcher.launch(
-            [claude, "auth", "login"],
+            command,
             f"Sign in — {dialog.title_name}",
             keep_open=False,
         )
@@ -551,20 +599,14 @@ class TrayController(QObject):
     @Slot()
     def _open_sign_in(self) -> None:
         """Open a terminal running Claude Code so the user can sign in."""
-        claude = find_claude()
-        if claude is None:
-            message = (
-                "Could not find the Claude Code command. Open a terminal "
-                "yourself and run: claude auth login"
-            )
-            self.profiles.log(message, level="error")
+        command, problem = self._sign_in_command()
+        if command is None:
+            self.profiles.log(problem, level="error")
             if self._window is not None:
-                self._window.setup_page.set_result(message, ok=False)
+                self._window.setup_page.set_result(problem, ok=False)
             return
 
-        result = self.launcher.launch(
-            [claude, "auth", "login"], "Sign in to Claude Code", keep_open=False
-        )
+        result = self.launcher.launch(command, "Sign in to Claude Code", keep_open=False)
         if result.ok:
             message = (
                 "Opened a terminal running claude auth login. Your browser "
@@ -664,6 +706,9 @@ class TrayController(QObject):
             window.visibilityChanged.connect(self._on_ui_visibility_changed)
             window.accountsTabShown.connect(self._refresh_setup)
             self._window = window
+            if self._environment_resolver is not None:
+                window.set_environments(self._distros)
+                self._refresh_environment_status()
         return self._window
 
     @Slot()
@@ -681,6 +726,9 @@ class TrayController(QObject):
     def _on_settings_changed(self, settings: Settings) -> None:
         previous = self._settings
         self._settings = self._settings_service.save(settings)
+
+        if self._settings.claude_environment != previous.claude_environment:
+            self._apply_environment(self._settings.claude_environment)
 
         self.notifications.configure(
             enabled=self._settings.notifications_enabled,
@@ -716,6 +764,67 @@ class TrayController(QObject):
             if self._window:
                 self._window.set_hotkey_status(message, ok)
 
+    # -- where Claude Code runs ------------------------------------------------
+
+    def _list_distros(self) -> None:
+        self.distrosReady.emit(self._distro_lister())
+
+    @Slot(object)
+    def _on_distros_ready(self, distros: list[str]) -> None:
+        self._distros = list(distros)
+        if self._window is not None:
+            self._window.set_environments(self._distros)
+
+    def _apply_environment(self, value: str) -> None:
+        """Point every service at Claude Code in ``value`` and start over."""
+        if self._environment_resolver is None or not isinstance(
+            self._backend, SwitchableBackend
+        ):
+            return
+        self._backend.set_target(self._environment_resolver(value), value)
+        self.polling.coordinator.reset()
+        self.profiles.login_repair.reset()
+        self.profiles.reset()
+        self._last_error = None
+        self.profiles.log(f"Now managing Claude Code in {self._backend.label}")
+        self._set_status(f"Reading accounts in {self._backend.label}…")
+        self._refresh_environment_status()
+        self.polling.poll_now()
+
+    def _refresh_environment_status(self) -> None:
+        """Describe the WSL target on the Settings card (detection may boot it)."""
+        if not isinstance(self._backend, SwitchableBackend):
+            return
+        if wsl.distro_of(self._backend.value) is None:
+            self.environmentStatus.emit("", "tertiary")
+            return
+        self.environmentStatus.emit(f"Checking {self._backend.label}…", "tertiary")
+        threading.Thread(
+            target=self._describe_environment, name="wsl-detect", daemon=True
+        ).start()
+
+    def _describe_environment(self) -> None:
+        backend = self._backend
+        generation = getattr(backend, "generation", 0)
+        try:
+            text, tone = backend.describe(), "success"
+        except CswapError as exc:
+            text, tone = exc.user_message, "critical"
+        if getattr(backend, "generation", 0) == generation:
+            self.environmentStatus.emit(text, tone)
+
+    @Slot(str, str)
+    def _on_environment_status(self, text: str, tone: str) -> None:
+        if self._window is not None:
+            self._window.set_environment_status(text, tone)
+
+    @Slot(str)
+    def _on_poll_dormant(self, reason: str) -> None:
+        if self.profiles.last_accounts is not None:
+            self._set_status(f"{reason} · showing last known values")
+        else:
+            self._set_status(f"{reason}. Opening Claude Profiles starts it and reads usage.")
+
     def _quit(self) -> None:
         self.polling.stop()
         self.hotkeys.disable(self._app)
@@ -733,6 +842,12 @@ class TrayController(QObject):
 
     @Slot(object)
     def _on_poll_failed(self, error: CswapError) -> None:
+        if (
+            error.kind is CswapErrorKind.NOT_INSTALLED
+            and isinstance(self._backend, SwitchableBackend)
+            and wsl.distro_of(self._backend.value) is not None
+        ):
+            self._on_environment_status(error.user_message, "critical")
         self._last_error = error.user_message
         self.profiles.apply_error(error)
         delay = self.polling.coordinator.next_delay()

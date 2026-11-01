@@ -203,14 +203,30 @@ class CswapClient:
         timeout: float = DEFAULT_TIMEOUT,
         switch_timeout: float = SWITCH_TIMEOUT,
         runner: Any = None,
+        argv_prefix: list[str] | None = None,
+        extra_env: dict[str, str] | None = None,
+        unreadable_message: str | None = None,
     ) -> None:
+        # ``argv_prefix`` runs cswap through a fixed launcher - the WSL target
+        # uses ``wsl.exe -d <distro> --exec ... cswap``. It is built by the
+        # caller from validated parts; only the cswap arguments after it come
+        # from this class's allowlist.
+        self._prefix = list(argv_prefix) if argv_prefix else None
         # ``discover`` distinguishes "not specified, go look for it" from
         # "deliberately absent", which is what the not-installed path needs.
-        self._executable = executable or (find_cswap() if discover else None)
+        if self._prefix is not None:
+            self._executable: str | None = self._prefix[-1]
+        else:
+            self._executable = executable or (find_cswap() if discover else None)
         self._timeout = timeout
         self._switch_timeout = switch_timeout
         # Injectable for tests; defaults to subprocess.run.
         self._runner = runner or subprocess.run
+        self._extra_env = dict(extra_env or {})
+        # When set, a response with no JSON and a failing exit code means the
+        # launcher itself failed (a distro that will not start), which is not
+        # something retrying faster fixes - so it is reported as not installed.
+        self._unreadable_message = unreadable_message
 
     @property
     def executable(self) -> str | None:
@@ -219,6 +235,39 @@ class CswapClient:
     @property
     def is_available(self) -> bool:
         return self._executable is not None
+
+    def _argv(self, args: list[str]) -> list[str]:
+        if self._prefix is not None:
+            return [*self._prefix, *args]
+        assert self._executable is not None
+        return [self._executable, *args]
+
+    def _env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.update(self._extra_env)
+        return env
+
+    # -- environment hooks (the WSL target has its own versions) -------------
+
+    def dormant_reason(self) -> str | None:
+        """Windows needs nothing woken before a poll."""
+        return None
+
+    def sign_in_command(self) -> list[str] | None:
+        """``claude auth login`` for the Windows Claude Code, if installed."""
+        from .process_launcher import find_claude
+
+        claude = find_claude()
+        return [claude, "auth", "login"] if claude else None
+
+    def sign_in_unavailable(self) -> str:
+        return (
+            "Could not find the Claude Code command. Open a terminal and run: "
+            "claude auth login"
+        )
+
+    def describe(self) -> str:
+        return "Using claude-swap on Windows."
 
     # -- invocation ---------------------------------------------------------
 
@@ -247,14 +296,14 @@ class CswapClient:
                 missing_cswap_advice(),
             )
 
-        argv = [self._executable, *args]
+        argv = self._argv(args)
         kwargs: dict[str, Any] = {
             "capture_output": True,
             "text": True,
             "timeout": timeout,
             "encoding": "utf-8",
             "errors": "replace",
-            "env": os.environ.copy(),
+            "env": self._env(),
         }
         if sys.platform == "win32":
             kwargs["creationflags"] = _CREATE_NO_WINDOW
@@ -277,6 +326,8 @@ class CswapClient:
             payload = _extract_json(stdout)
         except (ValueError, json.JSONDecodeError) as exc:
             # Never surface stdout itself; it could quote credential material.
+            if self._unreadable_message and getattr(completed, "returncode", 0) not in (0, None):
+                raise CswapError(CswapErrorKind.NOT_INSTALLED, self._unreadable_message) from exc
             raise CswapError(
                 CswapErrorKind.INVALID_JSON,
                 "claude-swap returned a response this app could not read.",
@@ -369,14 +420,14 @@ class CswapClient:
                 missing_cswap_advice(),
             )
 
-        argv = [self._executable, *args]
+        argv = self._argv(args)
         kwargs: dict[str, Any] = {
             "capture_output": True,
             "text": True,
             "timeout": timeout,
             "encoding": "utf-8",
             "errors": "replace",
-            "env": os.environ.copy(),
+            "env": self._env(),
         }
         if sys.platform == "win32":
             kwargs["creationflags"] = _CREATE_NO_WINDOW
@@ -452,4 +503,4 @@ class CswapClient:
             )
         args = ["run", str(number)]
         self._validate(args)
-        return [self._executable, *args]
+        return self._argv(args)

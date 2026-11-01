@@ -93,6 +93,14 @@ class LoginRepair:
             return None
         return active
 
+    def reset(self) -> None:
+        """Forget all attempts, e.g. because the environment changed: slot 2
+        on Windows and slot 2 in WSL are different accounts."""
+        with self._lock:
+            self._last_attempt.clear()
+            self._failures.clear()
+            self._requested = False
+
     def request(self) -> None:
         """Let the next automatic check skip the backoff.
 

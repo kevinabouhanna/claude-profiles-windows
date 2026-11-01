@@ -66,6 +66,9 @@ class ProfileService(QObject):
         self._last_active_key: str | None = None
         self._warned_schema = False
         self._reauth_warned: set[str] = set()
+        # The last refresh failure logged, so a persistent one (claude-swap
+        # not installed in a WSL distro yet) is recorded once, not every poll.
+        self._last_failure: str | None = None
         # Retained so the setup page can show accounts that carry no alias yet.
         self.last_accounts: AccountList | None = None
         self.last_status: ActiveStatus | None = None
@@ -101,6 +104,22 @@ class ProfileService(QObject):
             self._busy = value
         self.busyChanged.emit(value)
 
+    def reset(self) -> None:
+        """Forget every account, e.g. because the environment changed.
+
+        The accounts of the old environment must not linger on screen next to
+        the new one's, and an alias like "work" can exist in both.
+        """
+        self._profiles = ()
+        self._states = {}
+        self._last_active_key = None
+        self._reauth_warned = set()
+        self._last_failure = None
+        self.last_accounts = None
+        self.last_status = None
+        self.profilesChanged.emit()
+        self.statesChanged.emit()
+
     # -- activity log -------------------------------------------------------
 
     def log(self, message: str, level: str = "info") -> ActivityEntry:
@@ -122,6 +141,7 @@ class ProfileService(QObject):
     def apply_accounts(self, accounts: AccountList) -> None:
         """Fold a ``list --json`` result into per-profile state."""
         self.last_accounts = accounts
+        self._last_failure = None
         if not accounts.is_known_schema and not self._warned_schema:
             self._warned_schema = True
             self.schemaWarning.emit(accounts.schema_version)
@@ -201,7 +221,9 @@ class ProfileService(QObject):
         Existing state is intentionally left in place; the UI marks it stale
         rather than blanking the numbers the user was reading.
         """
-        self.log(f"Usage refresh failed - {error.user_message}", level="error")
+        if error.user_message != self._last_failure:
+            self._last_failure = error.user_message
+            self.log(f"Usage refresh failed - {error.user_message}", level="error")
         self.statesChanged.emit()
 
     def _name(self, key: str) -> str:

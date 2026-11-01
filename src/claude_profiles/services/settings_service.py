@@ -22,6 +22,7 @@ from typing import Any
 
 from ..models import ActivityEntry
 from .redaction import safe_for_log
+from .wsl import WINDOWS, distro_of, environment_value
 
 APP_DIR_NAME = "ClaudeProfiles"
 SETTINGS_FILE = "settings.json"
@@ -50,6 +51,9 @@ class Settings:
     warn_threshold_pct: int = 80
     critical_threshold_pct: int = 95
     hotkeys_enabled: bool = False
+    # Where Claude Code runs: "windows", or "wsl:<distro>" to manage the
+    # Claude Code inside that WSL distribution instead.
+    claude_environment: str = WINDOWS
     # A short hash of the executable the Windows shortcuts were written for,
     # so startup can notice that a better launcher is now available. Hashed
     # rather than stored: the path contains the Windows username, and this file
@@ -65,11 +69,17 @@ class Settings:
         interval = max(30, min(3600, int(self.refresh_interval_seconds)))
         warn = max(1, min(99, int(self.warn_threshold_pct)))
         critical = max(warn + 1, min(100, int(self.critical_threshold_pct)))
+        environment = self.claude_environment
+        if not isinstance(environment, str) or distro_of(environment) is None:
+            environment = WINDOWS
+        else:
+            environment = environment_value(distro_of(environment))
         return replace(
             self,
             refresh_interval_seconds=interval,
             warn_threshold_pct=warn,
             critical_threshold_pct=critical,
+            claude_environment=environment,
         )
 
 

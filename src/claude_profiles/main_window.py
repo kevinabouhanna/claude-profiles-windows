@@ -21,6 +21,7 @@ from dataclasses import replace
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -37,6 +38,7 @@ from .models import ActivityEntry, ProfileState
 from .resources import fluent_icons
 from .resources.icons import render_app_tile
 from .services.settings_service import Settings
+from .services.wsl import WINDOWS, distro_of, environment_label, environment_value
 from .widgets import theme
 from .widgets.buttons import text_button
 from .widgets.controls import Stepper, ToggleSwitch, format_interval
@@ -116,6 +118,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(780, 540)
         self._loading_settings = False
         self._settings = settings
+        self._mock_mode = mock_mode
         self._accounts = None
         self._cards: dict[str, ProfileCard] = {}
 
@@ -245,8 +248,8 @@ class MainWindow(QMainWindow):
         page = Page(
             "Privacy",
             "Claude Profiles runs entirely on this computer. Its only outside "
-            "interaction is running the local cswap command and reading what it "
-            "prints.",
+            "interaction is running the local cswap command - through wsl.exe "
+            "when Claude Code runs in WSL - and reading what it prints.",
         )
         page.add_section("What this app keeps")
         page.add(BulletCard("check", "success", PRIVACY_STORED))
@@ -311,6 +314,25 @@ class MainWindow(QMainWindow):
                 self._interval_stepper,
             )
         )
+
+        self._environment_combo = QComboBox()
+        self._environment_combo.setMinimumWidth(170)
+        self._environment_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fill_environments([], settings.claude_environment)
+        self._environment_combo.currentIndexChanged.connect(self._emit_settings)
+        self._environment_card = page.add(
+            SettingsCard(
+                "terminal",
+                "Claude Code runs in",
+                "Choose a WSL distribution if you use Claude Code inside WSL, "
+                "including VS Code in Remote-WSL. claude-swap must be installed "
+                "there too.",
+                self._environment_combo,
+            )
+        )
+        if self._mock_mode:
+            self._environment_card.set_description("Demo mode uses synthetic accounts.")
+            self._environment_card.set_available(False)
 
         page.add_section("Notifications")
         self._alerts_toggle = ToggleSwitch()
@@ -422,8 +444,40 @@ class MainWindow(QMainWindow):
                 warn_threshold_pct=self._warn_stepper.value(),
                 critical_threshold_pct=self._critical_stepper.value(),
                 hotkeys_enabled=self._hotkeys_toggle.isChecked(),
+                claude_environment=self._selected_environment(),
             )
         )
+
+    # -- where Claude Code runs ----------------------------------------------
+
+    def _selected_environment(self) -> str:
+        value = self._environment_combo.currentData()
+        return value if isinstance(value, str) else self._settings.claude_environment
+
+    def _fill_environments(self, distros: list[str], selected: str) -> None:
+        """Windows plus one entry per WSL distro, keeping ``selected`` listed
+        even before the distro list has arrived (or if the distro is gone)."""
+        values = [WINDOWS] + [environment_value(d) for d in distros]
+        if distro_of(selected) is not None and selected not in values:
+            values.append(selected)
+        combo = self._environment_combo
+        was_loading = self._loading_settings
+        self._loading_settings = True
+        try:
+            combo.clear()
+            for value in values:
+                combo.addItem(environment_label(value), value)
+            index = combo.findData(selected)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            self._loading_settings = was_loading
+
+    def set_environments(self, distros: list[str]) -> None:
+        """The installed WSL distributions, once the tray has listed them."""
+        self._fill_environments(distros, self._selected_environment())
+
+    def set_environment_status(self, text: str, tone: str = "tertiary") -> None:
+        self._environment_card.set_status(text, tone)
 
     def load_settings(self, settings: Settings) -> None:
         """Push values back into the controls without re-emitting."""
@@ -441,6 +495,9 @@ class MainWindow(QMainWindow):
             self._critical_stepper.set_range(settings.warn_threshold_pct + 1, 100)
             self._warn_stepper.set_range(5, settings.critical_threshold_pct - 1)
             self._hotkeys_toggle.setChecked(settings.hotkeys_enabled)
+            index = self._environment_combo.findData(settings.claude_environment)
+            if index >= 0:
+                self._environment_combo.setCurrentIndex(index)
             self._sync_threshold_availability()
         finally:
             self._loading_settings = False

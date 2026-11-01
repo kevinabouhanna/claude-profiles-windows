@@ -218,6 +218,7 @@ Scenarios: `healthy`, `two_accounts`, `work_reauth`, `work_stale`, `work_unavail
 | Launch at Windows sign-in | **On** | Creates a shortcut in your Startup folder. **No registry keys are ever written.** Turning it off deletes the shortcut. |
 | Threshold notifications | Off | Fires on an upward crossing only, and re-arms after a reset. |
 | Global shortcuts | Off | `Ctrl+Alt+1` to `Ctrl+Alt+9`, one per account in Overview order. Registered only when enabled. |
+| Claude Code runs in | Windows | Or a WSL distribution; see [Claude Code in WSL](#claude-code-in-wsl). |
 
 Switch confirmations always appear, regardless of the notification setting, because they are the
 direct result of something you clicked.
@@ -230,6 +231,33 @@ There is no Refresh button, because there is nothing to press:
 - **Polling speeds up while you are looking.** With a window on screen the interval drops to 30
   seconds, then returns to your configured interval once everything is hidden.
 - **After a switch**, state is re-read immediately.
+
+## Claude Code in WSL
+
+Claude Code inside a WSL2 distribution, including the VS Code extension in Remote-WSL, keeps its
+login in the distribution's own `~/.claude`, which the Windows claude-swap never sees. To manage
+it instead:
+
+1. In the distribution, install claude-swap and Claude Code:
+
+   ```bash
+   uv tool install claude-swap                      # 0.26.0 or newer
+   curl -fsSL https://claude.ai/install.sh | bash   # Claude Code's native installer
+   ```
+
+   Both land in `~/.local/bin`, which is where the app looks. (The Claude Code inside VS Code's
+   WSL server is not on any PATH, so launching and signing in need this native install.)
+2. In **Settings**, set **Claude Code runs in** to the distribution. The card underneath says what
+   it found, or what is missing.
+3. Add your accounts on the **Accounts** page as usual; signing in opens a terminal inside the
+   distribution.
+
+One environment is managed at a time: switching the setting replaces the accounts on screen.
+Background checks never start a stopped distribution, so WSL still shuts down when idle; usage
+shows the last known values until you open Claude Profiles, which starts it.
+
+Each call runs as `wsl.exe -d <distro> --exec ...` with an argument list, never through a shell,
+and is limited to the same claude-swap commands as on Windows.
 
 ## When an account needs re-authentication
 
@@ -252,8 +280,9 @@ The app never signs in for you. Signing in is always Claude Code's, in a termina
 ## Privacy and security
 
 - **Local only.** The app opens no network connections. Its only external interaction is running
-  its bundled `cswap` and parsing the JSON it prints. Fetching usage is claude-swap's job, and the
-  bundled copy has its PyPI update check turned off.
+  its bundled `cswap` (or, for Claude Code in WSL, the distribution's `cswap` through `wsl.exe`)
+  and parsing the JSON it prints. Fetching usage is claude-swap's job, and the bundled copy has
+  its PyPI update check turned off.
 - **No credential access.** `%USERPROFILE%\.claude\.credentials.json`, `.claude-swap-backup\`, and
   Claude Code session files are never read, written, copied, exported, or backed up.
 - **Allowlisted commands.** Only `cswap list`, `status`, `switch`, `run`, `add`, and `alias` can be

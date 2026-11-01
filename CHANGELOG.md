@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code in WSL2. If you run Claude Code inside a WSL distribution, including VS Code in
+  Remote-WSL, choose that distribution under **Settings > Claude Code runs in**. Claude Profiles
+  then lists, switches, launches and signs in to the accounts of the Claude Code in that
+  distribution, through claude-swap installed there. Background checks never start a stopped
+  distribution, so WSL can still shut down when idle; opening Claude Profiles starts it.
+  ([#9](https://github.com/kevinabouhanna/claude-profiles-windows/issues/9))
+
 ### Fixed
 
 - Signing in again with Claude Code is now all it takes to fix an account. claude-swap kept its own
@@ -30,6 +39,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The tray menu shows Ctrl+Alt+1 to Ctrl+Alt+9 beside its switch items only while global shortcuts
   are on, and only for the ones that registered. Before, it showed them even with the setting off,
   when the keys did nothing.
+- A refresh error that keeps happening, such as claude-swap not being installed yet, is recorded in
+  the activity history once instead of on every check.
 - The message at the bottom of the Accounts page, such as "Registered … as Personal.", now clears
   when you switch to another page or close the window. Before, it stayed until the app quit, and
   could contradict the account list after a rename.

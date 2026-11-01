@@ -12,12 +12,13 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 from .resources.icons import app_icon
 from .services.cswap_client import (
     CswapBackend,
-    CswapClient,
     find_cswap,
     missing_cswap_advice,
 )
+from .services.environment import SwitchableBackend, resolve_backend
 from .services.mock_cswap import SCENARIOS, MockCswapClient
-from .services.settings_service import SettingsService
+from .services.settings_service import Settings, SettingsService
+from .services.wsl import WINDOWS, distro_of
 from .tray import TrayController
 from .widgets import theme
 
@@ -58,11 +59,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def build_backend(args: argparse.Namespace) -> tuple[CswapBackend, bool]:
-    """Return ``(backend, is_mock)``."""
+def build_backend(
+    args: argparse.Namespace, settings: Settings | None = None
+) -> tuple[CswapBackend, bool]:
+    """Return ``(backend, is_mock)``.
+
+    A real backend is a :class:`SwitchableBackend` pointed at wherever the
+    settings say Claude Code runs, so the Settings page can move it later.
+    """
     if args.mock or args.scenario != "healthy":
         return MockCswapClient(args.scenario), True
-    return CswapClient(), False
+    # Settings are normalized on load: "windows" or a valid "wsl:<distro>".
+    environment = settings.claude_environment if settings is not None else WINDOWS
+    return SwitchableBackend(resolve_backend(environment), environment), False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,8 +101,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    backend, is_mock = build_backend(args)
     settings_service = SettingsService(data_dir=args.data_dir)
+    settings = settings_service.load()
+    backend, is_mock = build_backend(args, settings)
 
     controller = TrayController(
         app,
@@ -101,10 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         settings_service,
         mock_mode=is_mock,
         skip_windows_integration=args.no_windows_integration,
+        environment_resolver=None if is_mock else resolve_backend,
     )
     controller.start()
 
-    if not is_mock and find_cswap() is None:
+    # The bundled Windows copy only matters while Claude Code runs on Windows;
+    # a WSL target reports its own setup problems on the Settings page.
+    on_windows = distro_of(settings.claude_environment) is None
+    if not is_mock and on_windows and find_cswap() is None:
         QMessageBox.warning(
             None,
             "claude-swap not found",

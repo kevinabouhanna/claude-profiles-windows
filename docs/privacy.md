@@ -63,7 +63,10 @@ entries and trimmed on write.
 ## Network activity
 
 **None.** The application imports no networking library and opens no sockets. Its only external
-interaction is executing `cswap` and reading the JSON it prints to stdout.
+interaction is executing `cswap` and reading the JSON it prints to stdout. When Claude Code runs in
+WSL, that `cswap` is the one inside the distribution, started with
+`wsl.exe -d <distro> --exec ...` (no shell); `wsl.exe` is also asked which distributions are
+installed and running.
 
 Any network traffic involved in fetching quota data is made by claude-swap, not by this app.
 

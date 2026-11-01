@@ -33,9 +33,11 @@ Neither accepts a file path, so no code path can reach a credential file even by
  (timer + guard)  (allowlist)   (prefs + log)    (wt / powershell)  (tray + thresholds)
                         │
                         ▼
-                  ┌───────────┐
-                  │   cswap   │  ← bundled in the installer; the only external program
-                  └───────────┘
+                  ┌───────────┐            ┌──────────────────────────────┐
+                  │   cswap   │  bundled   │ wsl.exe -d <distro> --exec   │
+                  │ (Windows) │     or     │   /usr/bin/env PATH=… cswap  │
+                  └───────────┘            └──────────────────────────────┘
+                   the external programs: cswap, and wsl.exe for a WSL target
 ```
 
 ## Module responsibilities
@@ -45,6 +47,8 @@ Neither accepts a file path, so no code path can reach a credential file even by
 | `models.py` | Frozen dataclasses mirroring the JSON contract. Tolerant parsing; no Qt imports. |
 | `services/cswap_client.py` | Allowlisted invocation, JSON extraction, error envelopes. **The only module that spawns `cswap` with captured output.** |
 | `services/mock_cswap.py` | Drop-in backend producing synthetic payloads through the real parsers. |
+| `services/wsl.py` | Claude Code inside a WSL2 distro: lists distros, detects claude-swap and Claude Code there, and runs cswap through `wsl.exe --exec`. |
+| `services/environment.py` | `SwitchableBackend`: one backend for the app's lifetime whose target (Windows or a WSL distro) the Settings page can change. |
 | `services/polling_service.py` | `PollingCoordinator` (pure Python: overlap guard + backoff) and a thin Qt shell. |
 | `services/profile_service.py` | Builds one profile per claude-swap account (any number), switch orchestration, busy flag, activity log. |
 | `services/login_repair.py` | Stores a fresh Claude Code sign-in that claude-swap still flags as dead (bare `cswap add`), with backoff. Run inside the poll slot and by Fix sign-in. |
@@ -159,7 +163,20 @@ timeout, and unexpected exceptions alike — each of which has a test.
 
 ## Security model
 
-**Trust boundary.** Two kinds of I/O exist: spawning `cswap` with allowlisted argv, and reading and
+**WSL target.** For Claude Code in WSL the same allowlisted cswap arguments run behind a fixed prefix,
+`wsl.exe -d <distro> --cd ~ --exec /usr/bin/env PATH=<…> <cswap>`. `wsl.exe` comes from
+`%SystemRoot%\System32`, never PATH; the distro must be listed by `wsl.exe -l -q` and match a
+conservative character class; the home directory and tool paths read back from the distro are
+validated before they enter an argv. Nothing runs through a shell. `env` puts `~/.local/bin` on
+PATH because `--exec` skips the login shell, and `cswap run` needs it to find `claude`. Detection
+(home, `which cswap claude`, `cswap --version` against a 0.26.0 minimum) is lazy and cached, since
+it can boot the VM. A background poll first asks `wsl.exe -l --running -q` and skips a stopped
+distro (`PollResult.dormant`: neither success nor failure), so WSL can still shut down when idle;
+polls made while a window is open, and explicit actions, may start it. A launcher failure with no
+JSON is reported as not installed, so it does not drive the backoff. Changing the target bumps
+`SwitchableBackend.generation`, and a poll that started against the old target is discarded.
+
+**Trust boundary.** Two kinds of I/O exist: spawning `cswap` (directly, or through `wsl.exe`) with allowlisted argv, and reading and
 writing the app's own preference file. No networking library is imported anywhere.
 
 **Allowlist.** `ALLOWED_COMMANDS = {list, status, switch, run, add, alias}`. There is no method that
