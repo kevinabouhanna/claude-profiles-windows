@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from ..models import FIVE_HOURS, SEVEN_DAYS, ProfileState
 from ..resources import fluent_icons
 from . import theme
+from .buttons import set_button_text
 from .status_badge import ProfileAvatar, StatusBadge, format_age, health_badge_text
 from .usage_bar import UsageBar
 
@@ -183,7 +184,8 @@ class ProfileCard(QFrame):
         wrapper = QVBoxLayout()
         wrapper.setSpacing(8)
 
-        self._relogin_button = QPushButton("  Fix sign-in")
+        self._relogin_button = QPushButton()
+        set_button_text(self._relogin_button, "Fix sign-in")
         self._relogin_button.setIcon(
             fluent_icons.icon("shield", theme.tokens().critical, 16)
         )
@@ -256,10 +258,14 @@ class ProfileCard(QFrame):
         self._freshness_label.setText(self._freshness_text(state))
 
         self._switch_button.setEnabled(self._primary_enabled(state))
-        self._switch_button.setText(self._primary_text(state))
+        set_button_text(self._switch_button, self._primary_text(state))
         self._switch_button.setIcon(self._primary_icon(state))
         self._launch_button.setEnabled(bool(account and account.number is not None))
+        # Icon-only, so it needs a name of its own: Qt does not expose the
+        # tooltip as the accessible name, and the button would read as "button".
+        self._launch_button.setAccessibleName(f"Open a terminal for {state.profile.name}")
         self._launch_button.setToolTip(self._launch_tooltip(state))
+        self._launch_button.setAccessibleDescription(self._launch_tooltip(state))
         self._launch_button.setIcon(
             fluent_icons.icon(
                 "terminal",
@@ -278,8 +284,8 @@ class ProfileCard(QFrame):
 
     def _primary_text(self, state: ProfileState) -> str:
         if state.account is None:
-            return f"  Set up {state.profile.name}"
-        return "  Active profile" if state.is_active else f"  Switch to {state.profile.name}"
+            return f"Set up {state.profile.name}"
+        return "Active profile" if state.is_active else f"Switch to {state.profile.name}"
 
     def _primary_icon(self, state: ProfileState):
         t = theme.tokens()
@@ -369,6 +375,6 @@ class ProfileCard(QFrame):
         self._launch_button.setEnabled(
             not busy and bool(state.account and state.account.number is not None)
         )
-        self._switch_button.setText(
-            "  Working…" if busy else self._primary_text(state)
+        set_button_text(
+            self._switch_button, "Working…" if busy else self._primary_text(state)
         )

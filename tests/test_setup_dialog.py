@@ -201,6 +201,7 @@ def test_a_valid_name_enables_saving_and_is_emitted(dialog, qtbot):
     d._alias_input.setText("Client-Acme")
     assert d._register_button.isEnabled() is True
     assert "Client Acme" in d._register_button.text()
+    assert d._register_button.accessibleName() == "Save this account as Client Acme"
 
     with qtbot.waitSignal(d.registerRequested) as signal:
         d._register_button.click()

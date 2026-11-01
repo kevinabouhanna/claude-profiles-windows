@@ -37,6 +37,7 @@ from ..models import ActiveStatus, Profile, profile_name
 from ..resources import fluent_icons
 from ..services.profile_service import ProfileService
 from . import theme
+from .buttons import set_button_text
 from .status_badge import ProfileAvatar, StatusBadge
 
 POLL_INTERVAL_MS = 2500
@@ -212,7 +213,8 @@ class SetupDialog(QDialog):
             "want to add. You can skip this if the right account is already "
             "signed in below.",
         )
-        button = QPushButton("  Sign in to Claude Code")
+        button = QPushButton()
+        set_button_text(button, "Sign in to Claude Code")
         button.setIcon(fluent_icons.icon("open_window", theme.tokens().text_on_accent, 16))
         button.setStyleSheet(theme.accent_button_css(self._color))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -285,8 +287,8 @@ class SetupDialog(QDialog):
     def _register_label(self) -> str:
         alias = self.alias()
         if alias and ProfileService.alias_problem(alias) is None:
-            return f"  Save this account as {profile_name(alias, None)}"
-        return "  Save this account"
+            return f"Save this account as {profile_name(alias, None)}"
+        return "Save this account"
 
     def _sync_register(self, *_args) -> None:
         alias = self.alias()
@@ -296,7 +298,7 @@ class SetupDialog(QDialog):
             signed_in and bool(alias) and problem is None and not self._busy
         )
         if not self._busy:
-            self._register_button.setText(self._register_label())
+            set_button_text(self._register_button, self._register_label())
         self._alias_hint.setText(problem or "")
         self._alias_hint.setVisible(bool(problem))
 
@@ -317,7 +319,7 @@ class SetupDialog(QDialog):
             "Waiting for sign-in to finish… this updates on its own."
         )
         self._waiting_label.setVisible(True)
-        self._signin_button.setText("  Reopen sign-in terminal")
+        set_button_text(self._signin_button, "Reopen sign-in terminal")
         self._polling = True
         self._poll_timer.start()
         self._stop_timer.start()
@@ -330,7 +332,7 @@ class SetupDialog(QDialog):
                 "Stopped watching for a sign-in. Press Re-check if you have "
                 "since signed in."
             )
-            self._signin_button.setText("  Re-check")
+            set_button_text(self._signin_button, "Re-check")
 
     def _poll(self) -> None:
         if self._poll_inflight:
@@ -385,7 +387,7 @@ class SetupDialog(QDialog):
         self._alias_input.setEnabled(not busy)
         self._sync_register()
         if busy:
-            self._register_button.setText("  Saving…")
+            set_button_text(self._register_button, "Saving…")
 
     def set_result(self, message: str, ok: bool) -> None:
         t = theme.tokens()

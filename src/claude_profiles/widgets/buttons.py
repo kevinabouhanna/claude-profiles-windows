@@ -23,11 +23,22 @@ def icon_button(name: str, tooltip: str, size: int = 32) -> QPushButton:
     return button
 
 
+def set_button_text(button: QPushButton, text: str) -> None:
+    """Label a button that carries a leading glyph.
+
+    The leading spaces only open a gap after the icon. Qt would otherwise use
+    the padded text as the accessible name, so screen readers and UI
+    Automation get the bare text instead.
+    """
+    button.setText(f"  {text}")
+    button.setAccessibleName(text)
+
+
 def text_button(name: str, text: str, *, accent: bool = False) -> QPushButton:
     """A standard (or accent) button with a leading system glyph."""
     t = theme.tokens()
-    button = QPushButton(f"  {text}")
-    button.setAccessibleName(text)
+    button = QPushButton()
+    set_button_text(button, text)
     color = t.text_on_accent if accent else t.text_secondary
     button.setIcon(fluent_icons.icon(name, color, 16))
     button.setIconSize(fluent_icons.icon_size(16))

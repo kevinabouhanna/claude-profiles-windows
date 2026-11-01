@@ -495,3 +495,56 @@ def test_fix_sign_in_on_an_idle_account_goes_straight_to_the_wizard(controller, 
     assert dialog is not None and dialog.profile.key == "work"
     assert "resync" not in backend.calls
     dialog.reject()
+
+
+# --- every button has a name a screen reader can say ---------------------
+
+
+def _spoken_name(button: QPushButton) -> str:
+    """What UI Automation reports: the accessible name, else the raw text."""
+    return button.accessibleName() or button.text()
+
+
+def test_every_button_has_a_trimmed_accessible_name(controller):
+    """The card's terminal button carried only an icon and a tooltip.
+
+    Qt does not use the tooltip as the accessible name, so screen readers
+    announced it as just "button". Labelled buttons exposed their icon-gap
+    padding ("  Switch to Work") as part of the name.
+    """
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.update_states(ctl.profiles.states)
+    ctl.popup.update_states(ctl.profiles.states)
+
+    buttons = ctl.popup.findChildren(QPushButton) + window.findChildren(QPushButton)
+    names = [_spoken_name(b) for b in buttons]
+
+    assert buttons
+    assert "" not in [name.strip() for name in names]
+    assert [name for name in names if name != name.strip()] == []
+
+
+def test_the_terminal_button_names_its_profile_and_explains_itself(controller):
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    ctl.popup.update_states(ctl.profiles.states)
+
+    for card in ctl.popup._cards.values():
+        name = card._state.profile.name
+        assert card._launch_button.accessibleName() == f"Open a terminal for {name}"
+        assert card._launch_button.accessibleDescription() == card._launch_button.toolTip()
+
+
+def test_a_busy_card_is_named_by_what_it_is_doing(controller):
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    ctl.popup.update_states(ctl.profiles.states)
+    card = next(iter(ctl.popup._cards.values()))
+
+    card.set_busy(True)
+    assert card._switch_button.accessibleName() == "Working…"
+
+    card.set_busy(False)
+    assert card._switch_button.accessibleName() == card._primary_text(card._state)

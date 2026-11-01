@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   while the page was being built.
 - Clicking the tray icon while the flyout is open now closes it. Before, the click closed the
   flyout and then immediately opened it again.
+- Screen readers now announce the terminal button on each account card as "Open a terminal for
+  <account>" instead of just "button", and read button labels without the spacing that separates
+  them from their icon.
 
 ### Removed
 
