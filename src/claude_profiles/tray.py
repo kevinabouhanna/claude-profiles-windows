@@ -26,7 +26,7 @@ from .resources import fluent_icons
 from .resources.icons import tray_icon
 from .services import autostart
 from .services.cswap_client import CswapBackend, CswapError, missing_cswap_advice
-from .services.hotkeys import MAX_SHORTCUTS, HotkeyManager
+from .services.hotkeys import HotkeyManager
 from .services.notification_service import NotificationService
 from .services.polling_service import PollingService, effective_interval
 from .services.process_launcher import ProcessLauncher, find_claude
@@ -105,6 +105,7 @@ class TrayController(QObject):
 
         if self._settings.hotkeys_enabled:
             self.hotkeys.enable(self._app)
+            self._update_shortcut_hints()
 
     # -- setup --------------------------------------------------------------
 
@@ -129,14 +130,13 @@ class TrayController(QObject):
 
         t = theme.tokens()
         profiles = self.profiles.profiles
-        for index, profile in enumerate(profiles, start=1):
+        for profile in profiles:
             action = QAction(f"Switch to {profile.name}", menu)
             action.setIcon(fluent_icons.icon(profile.glyph, t.on_surface(profile.color), 16))
-            if index <= MAX_SHORTCUTS:
-                action.setShortcut(f"Ctrl+Alt+{index}")
             action.triggered.connect(lambda _=False, key=profile.key: self._switch(key))
             menu.addAction(action)
             self._switch_actions[profile.key] = action
+        self._update_shortcut_hints()
 
         if profiles:
             # A submenu keeps the menu short however many accounts there are.
@@ -171,6 +171,21 @@ class TrayController(QObject):
         )
         menu.addSeparator()
         menu.addAction(command("power", "Quit", self._quit))
+
+    def _update_shortcut_hints(self) -> None:
+        """Label each switch item with its Ctrl+Alt+N only while that shortcut works.
+
+        The label is a promise: shown with global shortcuts off, or for one
+        another application already holds, it advertises a key that does
+        nothing.
+        """
+        registered = self.hotkeys.positions
+        for position, profile in enumerate(self.profiles.profiles, start=1):
+            action = self._switch_actions.get(profile.key)
+            if action is not None:
+                action.setShortcut(
+                    f"Ctrl+Alt+{position}" if position in registered else ""
+                )
 
     def _connect(self) -> None:
         self.profiles.profilesChanged.connect(self._on_profiles_changed)
@@ -696,6 +711,7 @@ class TrayController(QObject):
             else:
                 self.hotkeys.disable(self._app)
                 ok, message = True, "Global shortcuts disabled."
+            self._update_shortcut_hints()
             self.profiles.log(message, level="info" if ok else "error")
             if self._window:
                 self._window.set_hotkey_status(message, ok)

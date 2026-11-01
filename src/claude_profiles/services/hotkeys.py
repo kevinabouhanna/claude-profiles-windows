@@ -72,6 +72,11 @@ class HotkeyManager(QObject):
     def is_active(self) -> bool:
         return bool(self._registered)
 
+    @property
+    def positions(self) -> frozenset[int]:
+        """Account positions whose shortcut is actually registered right now."""
+        return frozenset(self._registered.values())
+
     def _handle(self, hotkey_id: int) -> None:
         position = self._registered.get(hotkey_id)
         if position:

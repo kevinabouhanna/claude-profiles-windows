@@ -27,6 +27,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Screen readers now announce the terminal button on each account card as "Open a terminal for
   <account>" instead of just "button", and read button labels without the spacing that separates
   them from their icon.
+- The tray menu shows Ctrl+Alt+1 to Ctrl+Alt+9 beside its switch items only while global shortcuts
+  are on, and only for the ones that registered. Before, it showed them even with the setting off,
+  when the keys did nothing.
 
 ### Removed
 

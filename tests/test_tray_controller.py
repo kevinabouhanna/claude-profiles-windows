@@ -8,6 +8,7 @@ behaviour, not merely to pass against the current code.
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 import time
 
@@ -16,12 +17,14 @@ from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QPushButton, QSystemTrayIcon, QWidget
 
 from claude_profiles.main_window import MainWindow
-from claude_profiles.services import autostart
+from claude_profiles.services import autostart, hotkeys
 from claude_profiles.services.mock_cswap import MockCswapClient
 from claude_profiles.services.profile_service import ProfileService
 from claude_profiles.services.settings_service import Settings, SettingsService
 from claude_profiles.tray import TrayController
 from claude_profiles.widgets import compact_popup
+
+from .test_hotkeys import FakeUser32, FakeWindll
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -548,3 +551,87 @@ def test_a_busy_card_is_named_by_what_it_is_doing(controller):
 
     card.set_busy(False)
     assert card._switch_button.accessibleName() == card._primary_text(card._state)
+
+
+# --- the tray menu advertises only shortcuts that work --------------------
+
+
+def _menu_hints(ctl: TrayController) -> list[str]:
+    return [
+        ctl._switch_actions[profile.key].shortcut().toString()
+        for profile in ctl.profiles.profiles
+    ]
+
+
+@pytest.fixture
+def fake_user32(monkeypatch):
+    """Registers hotkeys against a fake user32 rather than the real desktop."""
+
+    def _install(refuse: set[int] | None = None) -> FakeUser32:
+        user32 = FakeUser32(refuse)
+        monkeypatch.setattr(hotkeys.ctypes, "windll", FakeWindll(user32))
+        monkeypatch.setattr(hotkeys.sys, "platform", "win32")
+        return user32
+
+    return _install
+
+
+def _set_hotkeys(ctl: TrayController, enabled: bool) -> None:
+    ctl._on_settings_changed(dataclasses.replace(ctl._settings, hotkeys_enabled=enabled))
+
+
+def test_the_menu_shows_no_shortcuts_while_global_shortcuts_are_off(controller):
+    """Ctrl+Alt+N was printed beside every switch item whatever the setting.
+
+    The menu's own setShortcut only fires while the menu has focus, so with
+    global shortcuts off the label advertised a key that did nothing.
+    """
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+
+    assert ctl._settings.hotkeys_enabled is False
+    assert _menu_hints(ctl) == ["", "", ""]
+
+
+def test_turning_shortcuts_on_and_off_updates_the_menu(controller, fake_user32):
+    fake_user32()
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+
+    _set_hotkeys(ctl, True)
+    assert _menu_hints(ctl) == ["Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+3"]
+
+    _set_hotkeys(ctl, False)
+    assert _menu_hints(ctl) == ["", "", ""]
+
+
+def test_a_shortcut_another_app_holds_is_not_advertised(controller, fake_user32):
+    fake_user32(refuse={2})
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+
+    _set_hotkeys(ctl, True)
+
+    assert _menu_hints(ctl) == ["Ctrl+Alt+1", "", "Ctrl+Alt+3"]
+
+
+def test_shortcuts_that_fail_to_register_leave_the_menu_bare(controller, fake_user32):
+    fake_user32(refuse=set(range(1, hotkeys.MAX_SHORTCUTS + 1)))
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+
+    _set_hotkeys(ctl, True)
+
+    assert ctl._settings.hotkeys_enabled is False
+    assert _menu_hints(ctl) == ["", "", ""]
+
+
+def test_hints_survive_the_menu_being_rebuilt(controller, fake_user32):
+    fake_user32()
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    _set_hotkeys(ctl, True)
+
+    ctl._populate_menu()
+
+    assert _menu_hints(ctl) == ["Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+3"]
