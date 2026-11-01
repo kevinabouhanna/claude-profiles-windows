@@ -30,6 +30,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The tray menu shows Ctrl+Alt+1 to Ctrl+Alt+9 beside its switch items only while global shortcuts
   are on, and only for the ones that registered. Before, it showed them even with the setting off,
   when the keys did nothing.
+- The message at the bottom of the Accounts page, such as "Registered … as Personal.", now clears
+  when you switch to another page or close the window. Before, it stayed until the app quit, and
+  could contradict the account list after a rename.
 
 ### Removed
 

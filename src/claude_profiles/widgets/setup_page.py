@@ -23,6 +23,7 @@ from __future__ import annotations
 import html
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QHideEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -383,3 +384,14 @@ class SetupPage(QWidget):
         color = "#16a34a" if ok else "#dc2626"
         self._result.setStyleSheet(f"font-size: 12px; color: {color}; font-weight: 600;")
         self._result.setText(message)
+
+    def hideEvent(self, event: QHideEvent) -> None:  # noqa: N802 - Qt naming
+        # A result answers the action just taken. Nothing else ever cleared
+        # it, so "Registered ... as Personal." was still under the account
+        # list hours later, after renames had made it untrue. Leaving the page
+        # - another tab, or the window closing to the tray - ends it. A
+        # minimise is spontaneous and keeps it; so does a result that arrives
+        # while the page is already hidden, since the user has not seen it.
+        if not event.spontaneous():
+            self._result.clear()
+        super().hideEvent(event)

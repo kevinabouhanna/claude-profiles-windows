@@ -635,3 +635,56 @@ def test_hints_survive_the_menu_being_rebuilt(controller, fake_user32):
     ctl._populate_menu()
 
     assert _menu_hints(ctl) == ["Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+3"]
+
+
+# --- an Accounts page result answers one visit -----------------------------
+
+
+def _accounts_page_open(controller):
+    from claude_profiles.main_window import TAB_ACCOUNTS
+
+    ctl = controller("healthy")
+    ctl.profiles.refresh_sync()
+    window = ctl._ensure_window()
+    window.show()
+    window.show_tab(TAB_ACCOUNTS)
+    return window
+
+
+def test_leaving_the_accounts_page_clears_its_result(controller):
+    """"Registered <email> as Personal." stayed under the account list for hours.
+
+    Nothing ever cleared the result line, so it outlived switches, renames
+    and tab changes, and could contradict the list right above it.
+    """
+    from claude_profiles.main_window import TAB_ACCOUNTS, TAB_DASHBOARD
+
+    window = _accounts_page_open(controller)
+    window.setup_page.set_result("Registered g***@example.com as Personal.")
+
+    window.show_tab(TAB_DASHBOARD)
+    window.show_tab(TAB_ACCOUNTS)
+
+    assert window.setup_page._result.text() == ""
+
+
+def test_closing_the_window_to_the_tray_clears_the_result(controller):
+    window = _accounts_page_open(controller)
+    window.setup_page.set_result("Could not register: no such account", ok=False)
+
+    window.close()
+    window.show()
+
+    assert window.setup_page._result.text() == ""
+
+
+def test_a_result_that_arrives_while_the_page_is_hidden_waits_to_be_seen(controller):
+    from claude_profiles.main_window import TAB_ACCOUNTS, TAB_DASHBOARD
+
+    window = _accounts_page_open(controller)
+    window.show_tab(TAB_DASHBOARD)
+
+    window.setup_page.set_result("Registered g***@example.com as Personal.")
+    window.show_tab(TAB_ACCOUNTS)
+
+    assert window.setup_page._result.text() == "Registered g***@example.com as Personal."
