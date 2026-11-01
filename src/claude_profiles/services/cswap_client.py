@@ -37,7 +37,11 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
     {"list", "status", "switch", "run", "add", "alias"}
 )
 
-# Commands that mutate stored accounts. Only ever run from an explicit click.
+# Commands that mutate stored accounts. Run from an explicit click, with one
+# exception: a bare ``add`` that re-stores the login Claude Code is already
+# using, for the account claude-swap itself says is active (see
+# ``services/login_repair.py``). That never changes which account is active,
+# never names a slot or alias, and never signs anyone in.
 MUTATING_COMMANDS: frozenset[str] = frozenset({"switch", "add", "alias"})
 
 # Aliases are the only identifiers we accept from configuration.
@@ -103,6 +107,8 @@ class CswapBackend(Protocol):
     ) -> SwitchOutcome: ...
 
     def add_current_account(self, alias: str) -> str: ...
+
+    def resync_login(self) -> str: ...
 
     def set_alias(self, number: int, alias: str) -> str: ...
 
@@ -407,6 +413,19 @@ class CswapClient:
         if not ALIAS_PATTERN.match(alias):
             raise CswapError(CswapErrorKind.DISALLOWED, "Refused an invalid profile alias.")
         return self._invoke_text(["add", "--alias", alias], self._switch_timeout)
+
+    def resync_login(self) -> str:
+        """Bare ``cswap add``: re-store the login Claude Code is using now.
+
+        For an account claude-swap already knows, ``add`` with no arguments
+        copies the current Claude Code login into that account's slot, keeps
+        its alias, and clears any "re-login needed" verdict bound to the old
+        token. It makes no network call. With no ``--slot`` and no ``--alias``
+        it cannot overwrite a different account or collide with a name; the
+        caller still confirms the login belongs to a registered account first,
+        because for an unknown one ``add`` would register a new slot instead.
+        """
+        return self._invoke_text(["add"], self._switch_timeout)
 
     def set_alias(self, number: int, alias: str) -> str:
         """``cswap alias <number> <alias>`` for an already-registered account."""

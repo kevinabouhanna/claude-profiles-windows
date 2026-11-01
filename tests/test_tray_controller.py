@@ -417,3 +417,81 @@ def test_there_is_no_refresh_button_anywhere(controller):
 
     assert not [text for text in menu_items if "Refresh" in text]
     assert not [b for b in buttons if "Refresh" in b.accessibleName()]
+
+
+# --- a fresh sign-in claude-swap had not stored ---------------------------
+
+
+def _work_signed_in(ctl, *, stale: bool = False, dead: bool = False):
+    from claude_profiles.services.mock_cswap import WORK_EMAIL
+
+    backend = ctl._backend
+    backend.switch("work")
+    if stale:
+        backend.stale_logins.add(WORK_EMAIL)
+    if dead:
+        backend.dead_logins.add(WORK_EMAIL)
+    ctl.profiles.refresh_sync()
+    assert ctl.profiles.state("work").needs_reauth
+    backend.calls.clear()
+    return backend
+
+
+def test_the_poller_picks_up_a_fresh_sign_in_on_its_own(controller, qtbot):
+    """Signing in with Claude Code must be all it takes: no button, no cswap add."""
+    ctl = controller("two_accounts")
+    _work_signed_in(ctl, stale=True)
+
+    assert ctl.polling.poll_now()
+    qtbot.waitUntil(lambda: not ctl.profiles.state("work").needs_reauth, timeout=5000)
+    qtbot.waitUntil(
+        lambda: any(
+            "Picked up the new Claude Code sign-in for Work" in e.message
+            for e in ctl.profiles.recent_activity()
+        ),
+        timeout=5000,
+    )
+
+
+def test_fix_sign_in_restores_the_active_login_without_a_dialog(controller, qtbot):
+    ctl = controller("two_accounts")
+    backend = _work_signed_in(ctl, stale=True)
+
+    ctl._fix_sign_in("work")
+
+    qtbot.waitUntil(lambda: not ctl.profiles.state("work").needs_reauth, timeout=5000)
+    qtbot.waitUntil(lambda: not ctl.profiles.is_busy, timeout=5000)
+    assert "resync" in backend.calls
+    assert ctl._setup_dialog is None
+
+
+def test_fix_sign_in_opens_the_reconnect_wizard_when_the_login_is_dead(controller, qtbot):
+    ctl = controller("two_accounts")
+    _work_signed_in(ctl, dead=True)
+
+    ctl._fix_sign_in("work")
+
+    qtbot.waitUntil(lambda: ctl._setup_dialog is not None, timeout=5000)
+    dialog = ctl._setup_dialog
+    assert dialog.profile is not None and dialog.profile.key == "work"
+    assert "Sign in again" in dialog._result.text()
+    dialog.reject()
+
+
+def test_fix_sign_in_on_an_idle_account_goes_straight_to_the_wizard(controller, qtbot):
+    """An account Claude Code is not signed in as has no login to pick up."""
+    from claude_profiles.services.mock_cswap import WORK_EMAIL
+
+    ctl = controller("two_accounts")
+    backend = ctl._backend
+    backend.stale_logins.add(WORK_EMAIL)
+    ctl.profiles.refresh_sync()
+    assert not ctl.profiles.state("work").is_active
+    backend.calls.clear()
+
+    ctl._fix_sign_in("work")
+
+    dialog = ctl._setup_dialog
+    assert dialog is not None and dialog.profile.key == "work"
+    assert "resync" not in backend.calls
+    dialog.reject()

@@ -227,6 +227,8 @@ def test_status_and_list_agree_on_the_active_account(client, accounts):
         f"status says {mask_email(status.email)} but list says "
         f"{mask_email(active.email)}"
     )
+    # The sign-in repair only re-stores a login when both name the same slot.
+    assert status.number == active.number
 
 
 # --- this machine's setup -------------------------------------------------

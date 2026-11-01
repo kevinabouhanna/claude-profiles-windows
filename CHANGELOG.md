@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Signing in again with Claude Code is now all it takes to fix an account. claude-swap kept its own
+  copy of the old, dead login and went on reporting "re-login needed" for the account Claude Code
+  was signed in as, so the card said **Sign-in needed** and its usage froze at the last good
+  reading, even though Claude Code worked. Claude Profiles now stores the current sign-in with
+  claude-swap itself (`cswap add`, the step claude-swap asks for) the moment it sees this, with no
+  button to press.
+- **Fix sign-in** does something now. It stores the current sign-in first, and if the account is
+  not the one Claude Code is signed in as, or that sign-in has expired too, it opens the reconnect
+  wizard instead of a list of terminal commands.
 - Opening the dashboard or Settings for the first time no longer flashes a burst of blank windows
   on screen. Each settings description and account badge was briefly shown as a window of its own
   while the page was being built.

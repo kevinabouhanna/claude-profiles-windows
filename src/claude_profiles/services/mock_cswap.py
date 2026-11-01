@@ -98,6 +98,11 @@ class MockCswapClient:
         self._active_number: int | None = 1 if self._accounts else None
         # Who Claude Code is currently signed in as, for `add` to pick up.
         self._signed_in_email = WORK_EMAIL
+        # Accounts claude-swap marks "re-login needed" because its stored copy
+        # holds a dead token (a bare `add` fixes these), and accounts whose
+        # live Claude Code login is dead too (only signing in fixes those).
+        self.stale_logins: set[str] = set()
+        self.dead_logins: set[str] = set()
         # Test hooks.
         self.calls: list[str] = []
         self.fail_next_list: CswapError | None = None
@@ -164,7 +169,12 @@ class MockCswapClient:
             "usageAgeSeconds": 3.2,
         }
 
-        if alias == "work":
+        if email in self.stale_logins or email in self.dead_logins:
+            account["usageStatus"] = "relogin_required"
+            account["usage"] = None
+            account.pop("usageFetchedAt", None)
+            account.pop("usageAgeSeconds", None)
+        elif alias == "work":
             if self.scenario == "work_reauth":
                 account["usageStatus"] = "relogin_required"
                 account["usage"] = None
@@ -247,7 +257,14 @@ class MockCswapClient:
                 }
             )
         return ActiveStatus.parse(
-            {"schemaVersion": 1, "active": {"email": active["email"], "managed": True}}
+            {
+                "schemaVersion": 1,
+                "active": {
+                    "email": active["email"],
+                    "number": active["number"],
+                    "managed": True,
+                },
+            }
         )
 
     def switch(
@@ -291,6 +308,18 @@ class MockCswapClient:
         if self._active_number is None:
             self._active_number = number
         return f"Added the signed-in account as '{alias}'."
+
+    def resync_login(self) -> str:
+        """Bare ``add``: re-store the active login into its existing slot."""
+        self.calls.append("resync")
+        if self.fail_next_add is not None:
+            error, self.fail_next_add = self.fail_next_add, None
+            raise error
+        active = self._find(self._active_number)
+        if active is None:
+            raise CswapError(CswapErrorKind.REPORTED, "No active Claude account found.")
+        self.stale_logins.discard(active["email"])
+        return f"Updated credentials for Account {active['number']}."
 
     def set_alias(self, number: int, alias: str) -> str:
         self.calls.append(f"alias:{number}:{alias}")

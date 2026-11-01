@@ -339,6 +339,29 @@ def test_add_failure_surfaces_redacted_output(make_client):
     assert "no credentials" in excinfo.value.user_message
 
 
+def test_resync_is_a_bare_add(make_client):
+    """Re-storing the current login names no slot and no alias, so it can only
+    ever update the slot that login already belongs to."""
+    client, runner = make_client(
+        FakeCompleted(stdout="Updated credentials for Account 2.", returncode=0)
+    )
+    message = client.resync_login()
+    assert runner.last_args[1:] == ["add"]
+    assert runner.kwargs[-1].get("shell") in (None, False)
+    assert "Updated credentials" in message
+
+
+def test_status_reports_the_slot_number(make_client):
+    payload = {
+        "schemaVersion": 1,
+        "active": {"number": 2, "email": fx.WORK_EMAIL, "managed": True},
+    }
+    client, _ = make_client(fx.dumps(payload))
+    status = client.status()
+    assert status.number == 2
+    assert status.email == fx.WORK_EMAIL
+
+
 def test_add_rejects_invalid_alias(make_client):
     client, runner = make_client("")
     for bad in ("", "Work", "has space", "--flag", "123", "a" * 40):

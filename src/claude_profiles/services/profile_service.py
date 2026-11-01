@@ -26,6 +26,7 @@ from ..models import (
     profiles_for,
 )
 from .cswap_client import ALIAS_PATTERN, CswapBackend, CswapError
+from .login_repair import LoginRepair, RepairOutcome
 from .settings_service import SettingsService
 
 
@@ -49,10 +50,14 @@ class ProfileService(QObject):
         backend: CswapBackend,
         settings_service: SettingsService,
         parent: QObject | None = None,
+        *,
+        login_repair: LoginRepair | None = None,
     ) -> None:
         super().__init__(parent)
         self._backend = backend
         self._settings = settings_service
+        # Shared with the poller, which runs the same repair automatically.
+        self.login_repair = login_repair or LoginRepair(backend)
         # Empty until the first poll: profiles come from claude-swap, not config.
         self._profiles: tuple[Profile, ...] = ()
         self._states: dict[str, ProfileState] = {}
@@ -203,6 +208,29 @@ class ProfileService(QObject):
         state = self._states.get(key)
         return state.profile.name if state else key
 
+    def _name_for_login(self, number: int | None, email: str) -> str:
+        for state in self.states:
+            account = state.account
+            if account is None:
+                continue
+            if (number is not None and account.number == number) or (
+                number is None and account.email == email
+            ):
+                return state.profile.name
+        return profile_name(None, number)
+
+    def note_repair(self, outcome: RepairOutcome) -> None:
+        """Record that the app re-stored the current sign-in with claude-swap.
+
+        Only a successful re-store is logged. A login that is genuinely dead
+        is already reported once as needing re-authentication, and the repair
+        retries quietly in the background; logging every retry would push real
+        events out of the capped history.
+        """
+        if outcome.attempted and outcome.healed:
+            name = self._name_for_login(outcome.number, outcome.email)
+            self.log(f"Picked up the new Claude Code sign-in for {name}")
+
     # -- actions ------------------------------------------------------------
 
     def refresh_sync(self) -> bool:
@@ -278,6 +306,56 @@ class ProfileService(QObject):
             message = f"Switched from {previous_name} to {state.profile.name}"
             self.switchSucceeded.emit(key)
             return True, message
+        finally:
+            self._set_busy(False)
+
+    def repair_login_sync(self, key: str) -> tuple[bool, str]:
+        """Fix sign-in: store the current Claude Code login for ``key`` now.
+
+        Returns ``(ok, message)``. ``ok`` is True once the account no longer
+        needs signing in. When it is False the login Claude Code holds is not
+        usable either, and the user has to sign in again.
+        """
+        state = self._states.get(key)
+        if state is None or state.account is None:
+            return False, "That account is not registered with claude-swap."
+        name = state.profile.name
+        if self._busy:
+            return False, "Another action is still running."
+
+        self._set_busy(True)
+        try:
+            try:
+                accounts = self._backend.list_accounts()
+            except CswapError as exc:
+                self.apply_error(exc)
+                return False, exc.user_message
+            outcome = self.login_repair.run(accounts, force=True)
+            if outcome is not None and outcome.accounts is not None:
+                accounts = outcome.accounts
+            self.apply_accounts(accounts)
+            if outcome is not None:
+                self.note_repair(outcome)
+
+            current = self._states.get(key)
+            if current is not None and current.account is not None and not current.needs_reauth:
+                return True, f"{name} is signed in."
+            if outcome is not None and outcome.error is not None:
+                message = (
+                    f"Could not store the current sign-in for {name} - "
+                    f"{outcome.error.user_message}"
+                )
+                self.log(message, level="error")
+                return False, message
+            if current is not None and current.is_active:
+                return False, (
+                    f"Claude Code's own sign-in for {name} has expired as well. "
+                    "Sign in again and it is picked up automatically."
+                )
+            return False, (
+                f"Sign in to Claude Code as {state.account.email}, and Claude "
+                "Profiles picks it up automatically."
+            )
         finally:
             self._set_busy(False)
 

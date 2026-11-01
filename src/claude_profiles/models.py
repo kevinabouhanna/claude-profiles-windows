@@ -345,6 +345,8 @@ class ActiveStatus:
     email: str | None = None
     managed: bool = False
     schema_version: int = SCHEMA_VERSION
+    # The slot this login is registered in, when claude-swap reports one.
+    number: int | None = None
 
     @classmethod
     def parse(cls, data: Any) -> ActiveStatus:
@@ -355,10 +357,12 @@ class ActiveStatus:
             active = {}
         version = data.get("schemaVersion")
         email = active.get("email")
+        number = active.get("number")
         return cls(
             email=email if isinstance(email, str) and email else None,
             managed=bool(active.get("managed")),
             schema_version=version if isinstance(version, int) else SCHEMA_VERSION,
+            number=number if isinstance(number, int) and not isinstance(number, bool) else None,
         )
 
 

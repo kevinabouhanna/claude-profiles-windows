@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from ..models import AccountList
 from .cswap_client import CswapBackend, CswapError, CswapErrorKind
+from .login_repair import LoginRepair, RepairOutcome
 from .redaction import redact_exception
 
 MAX_BACKOFF_SECONDS = 900.0
@@ -47,6 +48,8 @@ class PollResult:
 
     accounts: AccountList | None = None
     error: CswapError | None = None
+    # Set when this poll re-stored a fresh sign-in (or tried to).
+    repair: RepairOutcome | None = None
 
     @property
     def ok(self) -> bool:
@@ -67,10 +70,13 @@ class PollingCoordinator:
         interval_provider: Callable[[], float],
         *,
         clock: Callable[[], float] = time.monotonic,
+        repair: LoginRepair | None = None,
     ) -> None:
         self._backend = backend
         self._interval_provider = interval_provider
         self._clock = clock
+        # Runs inside the poll slot, so its cswap calls never overlap a poll's.
+        self._repair = repair
         self._lock = threading.Lock()
         self._inflight = False
         self._consecutive_failures = 0
@@ -138,11 +144,14 @@ class PollingCoordinator:
             self.last_error = wrapped
             return PollResult(error=wrapped)
         else:
+            repair = self._repair.run(accounts) if self._repair is not None else None
+            if repair is not None and repair.accounts is not None:
+                accounts = repair.accounts
             self._consecutive_failures = 0
             self.last_error = None
             self.last_result = accounts
             self.last_success_at = self._clock()
-            return PollResult(accounts=accounts)
+            return PollResult(accounts=accounts, repair=repair)
         finally:
             self._end()
 
@@ -168,6 +177,7 @@ class PollingService(QObject):
     pollSucceeded = Signal(object)  # AccountList
     pollFailed = Signal(object)  # CswapError
     pollFinished = Signal()
+    loginRepaired = Signal(object)  # RepairOutcome, after a re-store was attempted
 
     # Carries the worker thread's result back to the GUI thread. Qt queues a
     # signal across threads; QTimer.singleShot does not - called off the GUI
@@ -181,9 +191,11 @@ class PollingService(QObject):
         backend: CswapBackend,
         interval_provider: Callable[[], float],
         parent: QObject | None = None,
+        *,
+        repair: LoginRepair | None = None,
     ) -> None:
         super().__init__(parent)
-        self.coordinator = PollingCoordinator(backend, interval_provider)
+        self.coordinator = PollingCoordinator(backend, interval_provider, repair=repair)
         self._timer = QTimer(self)
         # Single-shot, rescheduled after each completion. A repeating timer
         # could stack ticks behind a slow poll; this cannot.
@@ -277,6 +289,8 @@ class PollingService(QObject):
             return
         if result.accounts is not None:
             self.pollSucceeded.emit(result.accounts)
+            if result.repair is not None and result.repair.attempted:
+                self.loginRepaired.emit(result.repair)
         elif result.error is not None:
             self.pollFailed.emit(result.error)
         self.pollFinished.emit()

@@ -105,7 +105,10 @@ including entries generated from deliberately poisoned error messages.
 - **It cannot terminate anything.** Claude Code, VS Code, terminals, and open chats are left alone.
 - **It cannot authenticate for you.** The Accounts tab can open a terminal running Claude Code and
   can register an account that is *already* signed in, but the sign-in itself happens in Claude
-  Code, in that terminal, driven by you. No credential passes through this app.
+  Code, in that terminal, driven by you. No credential passes through this app. When claude-swap
+  still flags the account Claude Code is signed in as after you signed in again, the app runs a
+  bare `cswap add` to store that sign-in, only after `cswap status` confirms it belongs to that
+  same account.
 - **It cannot run arbitrary commands.** Only `cswap list`, `status`, `switch`, `run`, `add`, and
   `alias` are reachable, through typed methods with validated arguments and no shell. `remove`,
   `purge`, `export`, `import`, `add-token`, and `config` are refused.
@@ -121,7 +124,9 @@ including entries generated from deliberately poisoned error messages.
 | Threshold notifications | Off | Nothing; state is in memory. |
 
 Start-at-sign-in and the Start menu entry are the two things written without an explicit click,
-so that the app behaves like any other installed program. Both are plain shortcuts in your own
+so that the app behaves like any other installed program. (The app also asks claude-swap to store
+a sign-in you already made, as described above; that is claude-swap's store, not anything the app
+writes.) Both are plain shortcuts in your own
 profile, visible in Explorer, and removable by hand. Everything else in this list stays untouched
 until you turn it on.
 

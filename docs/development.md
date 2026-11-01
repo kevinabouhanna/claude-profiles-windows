@@ -31,7 +31,7 @@ implementation.
 |---|---|
 | `healthy` | Three accounts (personal, work, side-project), all fine; usage drifts slowly so the UI visibly updates. |
 | `two_accounts` | Personal and work only, for a shorter flyout. |
-| `work_reauth` | `relogin_required` — red badge, no data, re-login instructions. |
+| `work_reauth` | `relogin_required` on an idle account — red badge, no data; Fix sign-in opens the reconnect wizard. |
 | `work_stale` | `usage: null` with `lastGoodUsage` — retained values, marked stale. |
 | `work_unavailable` | `usageError` + `usageRetryAt` — amber badge with a retry time. |
 | `high_usage` | Threshold colours plus a `spend` block. |

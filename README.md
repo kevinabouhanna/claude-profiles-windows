@@ -234,14 +234,18 @@ There is no Refresh button, because there is nothing to press:
 ## When an account needs re-authentication
 
 If claude-swap reports `token_expired`, `relogin_required`, or `no_credentials`, the card shows
-**Re-authentication required**. The fix is manual by design:
+**Sign-in needed**. All you do is sign in again with Claude Code, as that account:
 
-1. Open the **Accounts** page and press **Open a terminal to sign in to Claude Code**.
-2. Sign in as that account, close the terminal, and press **Re-check**.
-3. Register it again under the same name to refresh the stored slot.
+- **The account Claude Code is signed in as** is picked up on its own. claude-swap keeps its own
+  copy of each login, and keeps flagging an account while that copy holds the old token, even after
+  you have signed in again. When the app sees the active account flagged, it stores the current
+  sign-in with claude-swap (`cswap add`, which is the step claude-swap asks for). If that sign-in
+  has expired too, it tries again later, sooner whenever you open the app.
+- **Fix sign-in** does the same immediately. If the account is not the one Claude Code is signed in
+  as, or the sign-in itself has expired, it opens the reconnect wizard: sign in from the terminal it
+  opens, then save.
 
-The equivalent by hand is `claude` to sign in, then `cswap add --alias <alias>`. The app will never
-try to automate authentication in the background.
+The app never signs in for you. Signing in is always Claude Code's, in a terminal, driven by you.
 
 ---
 
@@ -256,7 +260,9 @@ try to automate authentication in the background.
   invoked. There is no free-form command path, argv is always a list, and a shell is never used.
   `remove`, `purge`, `export`, `import`, `add-token`, and `config` are all refused.
 - **Setup is not authentication.** `add` only records the account Claude Code is *already* signed
-  in as. Signing in stays an interactive step you perform yourself.
+  in as. Signing in stays an interactive step you perform yourself. The one `add` the app runs
+  without a click is a bare `cswap add` for the account claude-swap reports as active, after
+  confirming Claude Code is signed in as that same account, to store a sign-in you already made.
 - **No raw output is logged.** `cswap` stdout and stderr never reach a log or the UI. Only parsed,
   redacted error fields do.
 - **Redaction everywhere.** Anything written to disk passes through a scrubber for API keys, JWTs,

@@ -47,6 +47,7 @@ Neither accepts a file path, so no code path can reach a credential file even by
 | `services/mock_cswap.py` | Drop-in backend producing synthetic payloads through the real parsers. |
 | `services/polling_service.py` | `PollingCoordinator` (pure Python: overlap guard + backoff) and a thin Qt shell. |
 | `services/profile_service.py` | Builds one profile per claude-swap account (any number), switch orchestration, busy flag, activity log. |
+| `services/login_repair.py` | Stores a fresh Claude Code sign-in that claude-swap still flags as dead (bare `cswap add`), with backoff. Run inside the poll slot and by Fix sign-in. |
 | `services/redaction.py` | The single chokepoint for diagnostics. |
 | `services/settings_service.py` | ACL-locked JSON prefs and capped activity history. |
 | `services/process_launcher.py` | Opens a visible terminal; reads nothing back. |
@@ -166,7 +167,16 @@ accepts a command string.
 
 `add` and `alias` exist so accounts can be set up from the Accounts tab. Neither authenticates:
 `add` records whichever account Claude Code is *already* signed in as, and signing in stays an
-interactive terminal step the user performs. Everything destructive — `remove`, `purge`, `export`,
+interactive terminal step the user performs.
+
+One `add` runs without a click. claude-swap binds a "re-login needed" verdict to a token and holds
+it while *any* stored copy still carries that token, including the backup of the account Claude
+Code is signed in as, which it does not refresh after a new `/login`. The account then stays
+`relogin_required` with frozen usage until `cswap add` copies the live login into its slot.
+`LoginRepair` does that: only for the account `list` reports as active and flagged, only after
+`status` confirms the login is that same managed slot, and only as a bare `add` (no slot, no alias),
+which cannot overwrite another account. It runs inside the poll slot, so it never overlaps a poll,
+and backs off from 2 minutes up to 30 while the login stays dead; opening a window lifts the backoff. Everything destructive — `remove`, `purge`, `export`,
 `import`, `add-token`, `config` — remains refused, with a test asserting it.
 
 Upstream accepts `--json` only on `list`, `status`, and `switch` (cli.py:1301), so `add` and `alias`

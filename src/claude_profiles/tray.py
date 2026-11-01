@@ -42,24 +42,6 @@ SWITCH_HINT = (
     "panel still shows the former account, close and reopen that Claude panel."
 )
 
-RELOGIN_INSTRUCTIONS = (
-    "<p><b>{name} needs you to sign in again.</b></p>"
-    "<p>Claude Profiles never automates authentication, so these steps are "
-    "manual and happen in your terminal:</p>"
-    "<ol>"
-    "<li>Open a terminal and run <code>claude</code>, then sign in as "
-    "<b>{email}</b>.</li>"
-    "<li>Once you are signed in, register the refreshed login with "
-    "claude-swap:<br><code>cswap add --alias {alias}</code><br>"
-    "(or use <b>Add an account</b> with the same name).<br>"
-    "If the slot already exists, <code>cswap add</code> updates it.</li>"
-    "<li>Come back here: opening Claude Profiles from the tray picks up the "
-    "new sign-in.</li>"
-    "</ol>"
-    "<p>This app cannot read or repair credentials itself - all credential "
-    "handling belongs to claude-swap.</p>"
-)
-
 
 class TrayController(QObject):
     """Owns the tray icon and mediates between services and windows."""
@@ -69,6 +51,7 @@ class TrayController(QObject):
     # which has no event loop, so the callback is silently never invoked.
     loginReady = Signal(object)  # ActiveStatus | None
     registerDone = Signal(bool, str, object)  # ok, message, ActiveStatus | None
+    signInFixed = Signal(str, bool, str)  # profile key, ok, user-safe message
 
     def __init__(
         self,
@@ -102,7 +85,14 @@ class TrayController(QObject):
             critical_pct=self._settings.critical_threshold_pct,
         )
 
-        self.polling = PollingService(backend, self._current_interval, parent=self)
+        # The poller re-stores a fresh sign-in on its own, through the same
+        # repair the Fix sign-in button uses.
+        self.polling = PollingService(
+            backend,
+            self._current_interval,
+            parent=self,
+            repair=self.profiles.login_repair,
+        )
         self.hotkeys = HotkeyManager(self._on_hotkey, parent=self)
 
         # No accounts are known until the first poll; views rebuild then.
@@ -194,14 +184,16 @@ class TrayController(QObject):
         self.profiles.schemaWarning.connect(self._on_schema_warning)
         self.loginReady.connect(self._apply_login)
         self.registerDone.connect(self._on_register_done)
+        self.signInFixed.connect(self._on_sign_in_fixed)
 
         self.polling.pollSucceeded.connect(self._on_poll_succeeded)
         self.polling.pollFailed.connect(self._on_poll_failed)
+        self.polling.loginRepaired.connect(self.profiles.note_repair)
         self.polling.pollStarted.connect(lambda: self._set_status("Refreshing…"))
 
         self.popup.switchRequested.connect(self._switch)
         self.popup.launchRequested.connect(self._launch)
-        self.popup.reloginRequested.connect(self._show_relogin)
+        self.popup.reloginRequested.connect(self._fix_sign_in)
         self.popup.setupRequested.connect(self._show_setup)
         self.popup.addAccountRequested.connect(self._add_account)
         self.popup.dashboardRequested.connect(self._show_window)
@@ -298,7 +290,10 @@ class TrayController(QObject):
                 self.popup.update_states(self.profiles.states)
                 self.popup.show_near(self.tray.geometry().center())
                 # Clicking the tray icon means "show me the numbers now", so
-                # treat it as a refresh unless a reading just arrived.
+                # treat it as a refresh unless a reading just arrived. The user
+                # may also have just signed in again, so a pending sign-in
+                # repair skips its backoff.
+                self.profiles.login_repair.request()
                 self.polling.poll_if_stale()
 
     def _on_hotkey(self, position: int) -> None:
@@ -356,23 +351,44 @@ class TrayController(QObject):
             self._set_status("A refresh is already running…")
 
     @Slot(str)
-    def _show_relogin(self, key: str) -> None:
+    def _fix_sign_in(self, key: str) -> None:
+        """Fix sign-in on a card.
+
+        For the account Claude Code is signed in as, the usual cause is that
+        claude-swap still holds the token from before the user signed in
+        again, so the app stores the current sign-in first. Only when that is
+        not enough - or the account is not the signed-in one - does the user
+        need to sign in, and the reconnect wizard walks them through it.
+        """
+        state = self.profiles.state(key)
+        if state is None or self.profiles.is_busy:
+            return
+        if not state.is_active:
+            self._open_setup_dialog(state.profile)
+            return
+        self._set_status(f"Checking the sign-in for {state.profile.name}…")
+        self.profiles.run_in_background(self._do_fix_sign_in, key)
+
+    def _do_fix_sign_in(self, key: str) -> None:
+        ok, message = self.profiles.repair_login_sync(key)
+        self.signInFixed.emit(key, ok, message)
+
+    @Slot(str, bool, str)
+    def _on_sign_in_fixed(self, key: str, ok: bool, message: str) -> None:
+        self._set_status(message if not ok else self._freshness_line())
+        if ok:
+            self.popup.show_hint(message)
+            if self._window is not None:
+                self._window.show_banner(message)
+            return
         state = self.profiles.state(key)
         if state is None:
             return
-        email = state.account.email if state.account else "that account"
-        box = QMessageBox()
-        box.setWindowTitle("Re-authentication required")
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(
-            RELOGIN_INSTRUCTIONS.format(
-                name=state.profile.name,
-                email=email,
-                alias=state.profile.alias or "&lt;name&gt;",
-            )
-        )
-        box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.exec()
+        self._open_setup_dialog(state.profile)
+        dialog = self._setup_dialog
+        # A wizard already open for another account keeps its own message.
+        if dialog is not None and dialog.profile is not None and dialog.profile.key == key:
+            dialog.set_result(message, ok=False)
 
     def _show_window(self, tab: int = TAB_DASHBOARD) -> None:
         window = self._ensure_window()
@@ -381,6 +397,7 @@ class TrayController(QObject):
         window.update_states(self.profiles.states)
         window.set_activity(self.profiles.recent_activity())
         self._present(window)
+        self.profiles.login_repair.request()
         self.polling.poll_if_stale()
 
     def _present(self, window) -> None:
@@ -618,7 +635,7 @@ class TrayController(QObject):
             )
             window.switchRequested.connect(self._switch)
             window.launchRequested.connect(self._launch)
-            window.reloginRequested.connect(self._show_relogin)
+            window.reloginRequested.connect(self._fix_sign_in)
             window.setupRequested.connect(self._show_setup)
             window.addAccountRequested.connect(self._add_account)
             window.settingsChanged.connect(self._on_settings_changed)
